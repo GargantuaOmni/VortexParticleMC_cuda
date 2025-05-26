@@ -4,6 +4,7 @@
 /.idea/         # 
 .idea/         # 
 *.iml           # 
+/.idea/.gitignore
 
 ########################################
 # CMake / Visual Studio 

@@ -1,0 +1,13 @@
+########################################
+# JetBrains / IntelliJ / CLion
+########################################
+.idea/          # whole .idea/
+*.iml           # 
+
+########################################
+# CMake / Visual Studio 
+########################################
+/build/                         # 
+/cmake-build-*/                 # CLion/VS cmake-build-xxx 
+/CMakeFiles/                    # CMake temporary files
+*.cmake                         # .cmake files

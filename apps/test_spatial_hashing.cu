@@ -52,12 +52,12 @@ int main(int argc, char* argv[]){
 
     std::mt19937 rng(123);
     std::uniform_real_distribution<float> dist(0.f,1.f);
-
+#if defined(USE_CUDA)
     thrust::device_vector<float> d_px(N_max), d_py(N_max);
     thrust::device_vector<int>   d_cell_num(rshx*rshy), d_cell_acc(rshx*rshy);
     thrust::device_vector<int>   d_vp_cell(N_max), d_vp_map(N_max);
     thrust::device_vector<int>   d_sub_index(N_max);
-
+#endif
     if (backend == Backend::OMP){ std::cout << "omp_get_max_threads() = " << omp_get_max_threads() << '\n'; }
 
     /* -------------- 时间循环 ------------------ */
@@ -92,6 +92,7 @@ int main(int argc, char* argv[]){
         }
 
         else if (backend == Backend::CUDA) {
+#if defined(USE_CUDA)
             cudaMemcpy(thrust::raw_pointer_cast(d_px.data()),
            pos_x.data(), N_current * sizeof(float),
            cudaMemcpyHostToDevice);
@@ -134,7 +135,9 @@ int main(int argc, char* argv[]){
                        N_current * sizeof(int), cudaMemcpyDeviceToHost);
             cudaMemcpy(cell_acc.data(), thrust::raw_pointer_cast(d_cell_acc.data()),
                        cell_cnt * sizeof(int), cudaMemcpyDeviceToHost);
+#endif
         }
+
 
         else {
             FillCells_cpu(rshx,rshy,Lx,Ly,N_current,sub_index,
@@ -151,8 +154,7 @@ int main(int argc, char* argv[]){
 
         /* 调试断言 */
         int sum = std::accumulate(cell_num.begin(), cell_num.end(), 0);
-        assert(sum==0);                       // 计数已被递减完
-        // 也可备份 cell_num 在排序前验 sum==N_current
+        assert(sum==0);
 
         for(int c = 0; c < rshx*rshy; ++c){
             for(int k = 0; k < cell_num_copy[c]; ++k){

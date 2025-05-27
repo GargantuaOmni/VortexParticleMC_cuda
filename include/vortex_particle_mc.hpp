@@ -3,6 +3,8 @@
 #pragma once
 #include <span>
 #include <vector>
+#include <device_vector_alias.hpp>
+#include <spatial_hash.hpp>
 #include <glm/vec2.hpp>
 
 
@@ -13,30 +15,7 @@ struct ParticleSet {
     std::vector<float>     omega;          // vorticity
 };
 
-struct SpatialHash {
-    int rshx = 0;
-    int rshy = 0;
 
-    std::vector<int> cell_num;
-    std::vector<int> cell_acc;
-
-    std::vector<int> vp_cell;
-    std::vector<int> vp_sort;
-
-    SpatialHash() = default;
-    SpatialHash(int rx,int ry) : rshx(rx), rshy(ry)
-    {
-        int cells = rx*ry;
-        cell_num.resize(cells);
-        cell_acc.resize(cells);
-    }
-
-    void resize_particles(int N_max)
-    {
-        vp_cell.resize(N_max);
-        vp_sort.resize(N_max);
-    }
-};
 
 struct SimParam {
     float dt  = 0.1f;

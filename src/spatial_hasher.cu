@@ -36,10 +36,21 @@ void SpatialHasher::build(const std::vector<glm::vec2>& pos,
                           float Lx,float Ly)
 {
     int N = static_cast<int>(sub.size());
-    if(N > hash_.vp_cell.size()) resize(N);
+    if(N > hash_.vp_cell.size()) hash_.resize_particles(N);
 
-    static thread_local std::vector<float> px, py;
-    split_xy(pos, px, py);
+    /* ---                        --- */
+    static dvec<float> px, py;
+    px.resize(N); py.resize(N);
+    for(int i=0;i<N;++i){            //
+        px[i] = pos[sub[i]].x;
+        py[i] = pos[sub[i]].y;
+    }
+
+#if defined(USE_CUDA) && defined(__CUDACC__)
+    // No memory copies are needed here
+#else
+    /*   */
+#endif
 
     switch(backend_){
         case Backend::CPU:
@@ -63,7 +74,11 @@ void SpatialHasher::build(const std::vector<glm::vec2>& pos,
                           hash_.cell_num, hash_.cell_acc, hash_.vp_cell);
             break;
         case Backend::CUDA:
-            // FillCells_cuda(... d_px, d_py ...)
+            FillCells_cuda(hash_.rshx, hash_.rshy, Lx, Ly, N,
+                       raw_ptr(px), raw_ptr(py),      // ← 一行搞定
+                       raw_ptr(hash_.cell_num),
+                       raw_ptr(hash_.cell_acc),
+                       raw_ptr(hash_.vp_cell));
             break;
     }
 }

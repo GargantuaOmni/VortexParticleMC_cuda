@@ -3,6 +3,7 @@
 #include <random>
 #include <numeric>                       // accumulate
 #include <cuda_runtime.h>
+#include <device_vector_alias.hpp>
 
 /* ---------------- 1) 申请粒子内存 ---------------- */
 void Simulation::init()
@@ -13,6 +14,8 @@ void Simulation::init()
 
     particles_.pos.resize(P_.N_max);
     particles_.omega.resize(P_.N_max);
+
+    dvec<int> test;
 
     // Only used for uniformly distributed examples
     std::mt19937 rng(42);
@@ -33,18 +36,13 @@ void Simulation::init()
     int rsh = P_.ResolutionX / int(P_.hwr) / 4;
 
 
-    SpatialHasher hash_pos(rsh, rsh, Backend::CUDA);   // ← 关键：用 CUDA 后端
-    hash_pos.resize(int(sub_pos_.size()));             // 把 vp_cell / sort 拉到合适大小
+    SpatialHasher hash_pos(rsh, rsh, Backend::CUDA);   //
+    hash_pos.resize(int(sub_pos_.size()));             //
 
-    /* ------------------------------------------------
-     * 4) 把粒子坐标拷上 GPU，调用 build()
-     * ------------------------------------------------ */
-    // 4-1 先准备 device 缓冲 (一次性，可改成成员变量持久化)
     float *d_px, *d_py;
     cudaMalloc(&d_px, P_.N_max * sizeof(float));
     cudaMalloc(&d_py, P_.N_max * sizeof(float));
 
-    // 拆 X / Y → host 临时 buffer
     static std::vector<float> px, py;
     px.resize(P_.N_max);  py.resize(P_.N_max);
     for(int i=0;i<P_.N_max;++i){
@@ -52,21 +50,17 @@ void Simulation::init()
         py[i] = particles_.pos[i].y;
     }
 
-    // 拷前 N_cur 粒子
     cudaMemcpy(d_px, px.data(), particles_.N_cur*sizeof(float), cudaMemcpyHostToDevice);
     cudaMemcpy(d_py, py.data(), particles_.N_cur*sizeof(float), cudaMemcpyHostToDevice);
 
-    // 4-2 device 版 sub_index
     int *d_sub_pos;
     cudaMalloc(&d_sub_pos, sub_pos_.size()*sizeof(int));
     cudaMemcpy(d_sub_pos, sub_pos_.data(), sub_pos_.size()*sizeof(int), cudaMemcpyHostToDevice);
 
-    // 4-3 调 hasher.build —— CUDA 分支
     hash_pos.build(particles_.pos,      //
                    sub_pos_,            //
                    P_.Lx, P_.Ly);       //
 
-    // 4-4 可选：把 cell_num 拷回检查
     std::vector<int> cell_num_cpu(hash_pos.data().cell_num.size());
     cudaMemcpy(cell_num_cpu.data(),
                hash_pos.data().cell_num.data(),    // device ptr

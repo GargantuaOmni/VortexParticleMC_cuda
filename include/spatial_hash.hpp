@@ -1,6 +1,26 @@
 // include/spatial_hash.hpp
 #pragma once
 #include <span>
+#include <vector>
+#include <device_vector_alias.hpp>
+
+struct SpatialHash
+{
+    int rshx{}, rshy{};
+    dvec<int> cell_num, cell_acc;   // size = rshx*rshy
+    dvec<int> vp_cell, vp_sort;     // size = N_max
+
+    void resize_cells(int rx,int ry){
+        rshx = rx; rshy = ry;
+        size_t cells = size_t(rx)*ry;
+        cell_num.resize(cells);
+        cell_acc.resize(cells);
+    }
+    void resize_particles(int N_max){
+        vp_cell.resize(N_max);
+        vp_sort.resize(N_max);
+    }
+};
 
 // 只在参数里保留 "当前粒子数 N"。容量信息靠调用者保证不越界。
 void FillCells_cpu(int rshx, int rshy,

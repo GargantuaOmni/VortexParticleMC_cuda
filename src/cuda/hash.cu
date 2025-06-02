@@ -3,7 +3,6 @@
 #include <thrust/scan.h>
 #include <cuda_runtime.h>
 
-/* -------- Kernel 1: 填桶 -------- */
 __global__ void fill_cells_kernel(
     int rshx,int rshy,float inv_hx,float inv_hy,
     const int* sub,
@@ -25,7 +24,6 @@ __global__ void fill_cells_kernel(
     }
 }
 
-/* -------- Kernel 2: 逆序计数排序 -------- */
 __global__ void counting_sort_kernel(
     const int* vp_cell,int* cell_num,
     const int* cell_acc,int* vp_map,int N)

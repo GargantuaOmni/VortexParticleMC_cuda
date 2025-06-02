@@ -31,8 +31,9 @@ static void split_xy(const std::vector<glm::vec2>& pos,
     }
 }
 
-void SpatialHasher::build(const std::vector<glm::vec2>& pos,
-                          const std::vector<int>&       sub,
+template <typename VecPos, typename VecSub>
+void SpatialHasher::build(const VecPos & pos,
+                          const VecSub & sub,
                           float Lx,float Ly)
 {
     int N = static_cast<int>(sub.size());
@@ -61,7 +62,7 @@ void SpatialHasher::build(const std::vector<glm::vec2>& pos,
                           hash_.cell_num, hash_.cell_acc, hash_.vp_cell);
 
 
-            CountingSort_omp(N,
+            CountingSort_cpu(N,
                              hash_.cell_num, hash_.cell_acc,
                              std::span<const int>{hash_.vp_cell}.first(N),
                              std::span<int>{hash_.vp_sort}.first(N));
@@ -72,13 +73,24 @@ void SpatialHasher::build(const std::vector<glm::vec2>& pos,
                           std::span<const float>{px}.first(N),
                           std::span<const float>{py}.first(N),
                           hash_.cell_num, hash_.cell_acc, hash_.vp_cell);
+
+            CountingSort_omp(N,
+                             hash_.cell_num, hash_.cell_acc,
+                             std::span<const int>{hash_.vp_cell}.first(N),
+                             std::span<int>{hash_.vp_sort}.first(N));
             break;
         case Backend::CUDA:
             FillCells_cuda(hash_.rshx, hash_.rshy, Lx, Ly, N,
+                raw_ptr(sub),
                        raw_ptr(px), raw_ptr(py),      // ← 一行搞定
                        raw_ptr(hash_.cell_num),
                        raw_ptr(hash_.cell_acc),
                        raw_ptr(hash_.vp_cell));
+
+            CountingSort_cuda(N, raw_ptr(hash_.cell_num),
+                raw_ptr(hash_.cell_acc),
+                raw_ptr(hash_.vp_cell), raw_ptr(hash_.vp_sort));
+
             break;
     }
 }

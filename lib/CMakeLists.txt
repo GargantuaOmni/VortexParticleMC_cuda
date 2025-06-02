@@ -7,6 +7,8 @@ add_library(spatial_hasher STATIC ${PROJECT_SOURCE_DIR}/src/spatial_hasher.cu)
 target_link_libraries(spatial_hasher PRIVATE glm::glm-header-only)
 target_include_directories(spatial_hasher PUBLIC ${PROJECT_SOURCE_DIR}/include)
 
+add_library(build_particle_set_cpu STATIC ${PROJECT_SOURCE_DIR}/src/cpu/build_particle_sets.cpp)
+target_include_directories(build_particle_set_cpu PUBLIC ${PROJECT_SOURCE_DIR}/include)
 
 # omp / cuda
 find_package(OpenMP REQUIRED)
@@ -26,5 +28,9 @@ if(USE_CUDA)
     set_target_properties(hash_cuda PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
     target_include_directories(hash_cuda PUBLIC ${PROJECT_SOURCE_DIR}/include)
     target_link_libraries(hash_cuda PRIVATE Thrust::Thrust)
+
+
+    add_library(build_particle_set_cuda STATIC ${PROJECT_SOURCE_DIR}/src/cuda/build_particle_sets.cu)
+    target_include_directories(build_particle_set_cuda PUBLIC ${PROJECT_SOURCE_DIR}/include)
 
 endif()

@@ -6,7 +6,7 @@
 #include <device_vector_alias.hpp>
 
 /* ---------------- 1) 申请粒子内存 ---------------- */
-void Simulation::init()
+void Simulation::init(int num_of_p)
 {
     // ① 粒子上限 & 当前粒子数
     particles_.N_max = P_.N_max;

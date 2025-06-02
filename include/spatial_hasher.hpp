@@ -10,9 +10,8 @@ public:
     SpatialHasher(int rshx, int rshy, Backend b);
 
     void resize(int N_max);       //
-    void build(const std::vector<glm::vec2>& pos,
-               const std::vector<int>&       sub,   /*  */
-               float Lx, float Ly);           /* vp_cell / cell_num */
+    template<typename VecPos, typename VecSub>
+    void build(const VecPos& pos, const VecSub& sub, float Lx, float Ly);
 
     const SpatialHash& data() const { return hash_; }
 

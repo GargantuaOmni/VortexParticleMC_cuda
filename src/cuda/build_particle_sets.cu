@@ -5,6 +5,7 @@
 #include <thrust/scan.h>
 #include <thrust/count.h>
 #include <vortex_particle_mc.hpp>
+#include <iostream>
 
 void Simulation::build_subsets_cuda()
 {
@@ -43,6 +44,12 @@ void Simulation::build_subsets_cuda()
                     [] __device__ (float w){ return w > 0.f; });
     thrust::inclusive_scan(tmp.begin(), tmp.end(), cdf_pos_.begin());
     cum_pos_ = cdf_pos_.back();
+    if (cum_pos_ > 0.0f) {
+        float inv = 1.0f / cum_pos_;
+        thrust::transform(cdf_pos_.begin(), cdf_pos_.end(),
+                          cdf_pos_.begin(),
+                          [inv] __device__ (float x){ return x * inv; });
+    }
 
     tmp.resize(cnt_neg_);
     thrust::copy_if(particles_.omega.begin(), particles_.omega.begin()+N,
@@ -51,4 +58,12 @@ void Simulation::build_subsets_cuda()
     thrust::transform(tmp.begin(), tmp.end(), tmp.begin(), thrust::negate<float>()); // Abs
     thrust::inclusive_scan(tmp.begin(), tmp.end(), cdf_neg_.begin());
     cum_neg_ = cdf_neg_.back();
+    if (cum_neg_ > 0.0f) {
+        float inv = 1.0f / cum_neg_;
+        thrust::transform(cdf_neg_.begin(), cdf_neg_.end(),
+                          cdf_neg_.begin(),
+                          [inv] __device__ (float x){ return x * inv; });
+    }
+
+    std::cout << "Using Thrust to build particle sets"  << std::endl;
 }

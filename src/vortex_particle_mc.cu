@@ -2,6 +2,7 @@
 #include <utility>
 #include <cstdio>
 #include <random>
+#include <cstdio>
 
 
 Simulation::Simulation(SimParam p) : P_(std::move(p)) {}
@@ -21,6 +22,12 @@ void Simulation::init(int num_of_p) {
         //Note that this should also work if float2 is manually defined
         particles_.omega[i] = (uni(rng) < 0.5f ? 1.f : -1.f);
 
+        #if defined(USE_CUDA) && defined(__CUDACC__)
+        build_subsets_cuda();
 
+        #else
+        build_subsets_cpu();
+
+        #endif
     }
 }

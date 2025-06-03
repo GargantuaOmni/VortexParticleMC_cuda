@@ -29,7 +29,6 @@ auto raw_ptr(Vec& v){
 }
 
 
-
 template<typename Vec>
 auto raw_ptr(const Vec& v)                   //
 {

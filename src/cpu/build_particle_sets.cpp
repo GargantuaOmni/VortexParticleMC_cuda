@@ -1,6 +1,7 @@
 #include <vortex_particle_mc.hpp>
 #include <vector>
 #include <device_vector_alias.hpp>
+#include <iostream>
 
 void Simulation::build_subsets_cpu()
 {
@@ -26,4 +27,16 @@ void Simulation::build_subsets_cpu()
     cnt_neg_ = int(sub_neg_.size());
     cum_pos_ = cum_p;
     cum_neg_ = cum_n;
+
+    // Normalization
+    if (cum_pos_ > 0.0f) {
+        float inv = 1.0f / cum_pos_;
+        for (float& v : cdf_pos_) v *= inv;
+    }
+    if (cum_neg_ > 0.0f) {
+        float inv = 1.0f / cum_neg_;
+        for (float& v : cdf_neg_) v *= inv;
+    }
+
+    std::cout << "Using CPU backend to build particle sets"  << std::endl;
 }

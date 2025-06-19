@@ -82,7 +82,7 @@ void SpatialHasher::build(const VecPos & pos,
         case Backend::CUDA:
             FillCells_cuda(hash_.rshx, hash_.rshy, Lx, Ly, N,
                 raw_ptr(sub),
-                       raw_ptr(px), raw_ptr(py),      // ← 一行搞定
+                       raw_ptr(px), raw_ptr(py),
                        raw_ptr(hash_.cell_num),
                        raw_ptr(hash_.cell_acc),
                        raw_ptr(hash_.vp_cell));

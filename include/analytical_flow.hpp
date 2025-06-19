@@ -1,7 +1,6 @@
 #pragma once
 #include <cmath>
-
-struct float2 { float x, y; };
+#include <device_vector_alias.hpp>
 
 constexpr float TWO_PI = 6.28318530717958647692f;
 

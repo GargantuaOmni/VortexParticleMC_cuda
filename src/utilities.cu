@@ -1,15 +1,13 @@
-inline __host__ __device__
-float cubicSplinePDF(float r, float h_w)
-{
-    const float pi   = 3.141592653589793f;
-    const float sig2 = 40.f / (7.f * pi * h_w * h_w);
-    float q = r / h_w;
-    if (q >= 0.f && q <= 0.5f)
-        return sig2 * (6.f * (q*q*q - q*q) + 1.f);
-    if (q > 0.5f && q < 1.f)
-        return sig2 * 2.f * (1.f - q) * (1.f - q) * (1.f - q);
-    return 0.f;
-}
+//src/utilities
+#include <device_vector_alias.hpp>
+#include <utilities.hpp>
+#include <thrust/host_vector.h>
+#if defined(USE_CUDA) && defined(__CUDACC__)
+#include <cuda_runtime.h>
+#include <thrust/device_vector.h>
+#include <thrust/device_ptr.h>
+#include <thrust/system/cpp/memory.h>   // CPU fallback
+#endif
 
 void build_cubic_rcdf(float h_w, int length,
                       dvec<float>& cdf)            // length
@@ -50,47 +48,76 @@ void build_cubic_rcdf(float h_w, int length,
 #endif
 }
 
-
 void cdf_to_icdf(const dvec<float>& cdf, float h_w,
-                 dvec<float>& icdf)          //
+                 dvec<float>& icdf)
 {
-    const int L = static_cast<int>(cdf.size());
-    icdf.resize(L);
+    const int L  = static_cast<int>(cdf.size());
     const float dh = 1.f / L;
+    icdf.resize(L);
+
+#if defined(USE_CUDA) && defined(__CUDACC__)
+    /* Using Host_vector to deal with CDF to ICDF */
+    thrust::host_vector<float> cdf_h(cdf.begin(), cdf.end());
+    thrust::host_vector<float> icdf_h(L);
+#else
+    const std::vector<float>& cdf_h = cdf;   // alias
+    std::vector<float>        icdf_h(L);
+#endif
 
     /*  */
-    auto lookup = [&cdf,L](float u)
+    auto lookup = [&cdf_h,L](float u)
     {
         int ptr = 0;
-        while(ptr<L && u > cdf[ptr]) ++ptr;
-
-        if(ptr==0){
-            float λ = (cdf[0]-u)/cdf[0];
+        while (ptr < L && u > cdf_h[ptr]) ++ptr;
+        if (ptr == 0){
+            float λ = (cdf_h[0]-u)/cdf_h[0];
             return (1-λ)*0.5f;
         }
-        if(ptr==L){
-            float λ = (1-u)/(1-cdf[L-1]);
+        if (ptr == L){
+            float λ = (1-u)/(1-cdf_h[L-1]);
             return (1-λ)*(L-0.5f);
         }
-        float λ = (cdf[ptr]-u)/(cdf[ptr]-cdf[ptr-1]);
+        float λ = (cdf_h[ptr]-u)/(cdf_h[ptr]-cdf_h[ptr-1]);
         return (1-λ)*(ptr+0.5f) + λ*(ptr-0.5f);
     };
 
+    for(int i = 0; i < L; ++i){
+        float u   = (i + 0.5f) * dh;
+        float idx = lookup(u);          // 0.5‒(L-0.5)
+        icdf_h[i] = idx * dh * h_w;     //
+    }
+
 #if defined(USE_CUDA) && defined(__CUDACC__)
-    /* Not sure how this should be done by using (thrust::host_vector) ...  */
-    thrust::host_vector<float> cdf_h = cdf;
-    for(int i=0;i<L;++i){
-        float u  = (i+0.5f)*dh;
-        float idx= lookup(u);
-        icdf[i]  = idx * dh * h_w;
-    }
-    /* */
-    thrust::copy(icdf.begin(), icdf.end(), icdf.begin());
+    /* Copy back */
+    thrust::copy(icdf_h.begin(), icdf_h.end(), icdf.begin());
 #else
-    for(int i=0;i<L;++i){
-        float u  = (i+0.5f)*dh;
-        float idx= lookup(u);
-        icdf[i]  = idx * dh * h_w;
-    }
+    icdf = icdf_h;                      // std::vector 直接赋值
 #endif
 }
+
+
+#ifdef __CUDA_ARCH__
+#define GPU_ASSERT(cond)  if(!(cond)){ asm("trap;"); }
+#else
+#define GPU_ASSERT(cond)  assert(cond)
+#endif
+
+
+#if defined(USE_CUDA) && defined(__CUDACC__)
+template<typename T>
+void assert_equal(const thrust::device_vector<T>& d,
+                  const std::vector<T>&           h,
+                  const char* name)
+{
+    std::vector<T> tmp(d.size());
+    cudaMemcpy(tmp.data(), thrust::raw_pointer_cast(d.data()),
+               d.size()*sizeof(T), cudaMemcpyDeviceToHost);
+
+    for(size_t i=0;i<tmp.size();++i)
+        if(tmp[i] != h[i]){
+            std::cerr<<name<<" mismatch at "<<i
+                     <<" gpu="<<tmp[i]<<" cpu="<<h[i]<<'\n';
+            assert(false);
+        }
+}
+#endif

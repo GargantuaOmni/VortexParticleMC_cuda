@@ -22,7 +22,6 @@ struct SpatialHash
     }
 };
 
-// 只在参数里保留 "当前粒子数 N"。容量信息靠调用者保证不越界。
 void FillCells_cpu(int rshx, int rshy,
                    float Lx, float Ly,
                    int   N_current,                  // ← 逻辑长度
@@ -62,8 +61,7 @@ void FillCells_cuda(int rshx,int rshy,
                     float Lx,float Ly,
                     int   N,                      // N_current
                     const int* sub,
-                    const float* pos_x,           // device ptr
-                    const float* pos_y,
+                    const float2* pos,           // device ptr
                     int*  cell_num,               // device ptr  rshx*rshy
                     int*  cell_acc,               // device ptr
                     int*  vp_cell);               // device ptr  N

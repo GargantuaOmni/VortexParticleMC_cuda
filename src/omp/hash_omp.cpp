@@ -62,9 +62,9 @@ void CountingSort_omp(int N,
     #pragma omp parallel for schedule(static)
     for (int i = N - 1; i >= 0; --i) {
         int c = vp_cell[i];
-
+        int base= (c == 0) ? 0 : cell_acc[c-1];
         int old = std::atomic_ref<int>(cell_num[c]).fetch_sub(1, std::memory_order_relaxed);
-        int dst = old - 1 + cell_acc[c];
+        int dst = old - 1 + base;
         vp_map[dst] = i;
     }
 }

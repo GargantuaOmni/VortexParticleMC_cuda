@@ -1,3 +1,3 @@
-//
-// Created by Gargantua on 6/7/2025.
-//
+// src/utils/stb_write.cpp
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"      //

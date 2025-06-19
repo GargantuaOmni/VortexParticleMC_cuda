@@ -3,25 +3,25 @@
 #include <thrust/scan.h>
 #include <cuda_runtime.h>
 
-__global__ void fill_cells_kernel(
-    int rshx,int rshy,float inv_hx,float inv_hy,
-    const int* sub,
-    const float* px,const float* py,
-    int* cell_num,int* vp_cell,int N)
+__global__ void FillCells_kernel(
+        int rshx, int rshy, float inv_hx, float inv_hy,
+        const int*   sub,        // 局部 → 全局   (N_sub)
+        const float2* p,         // 全局粒子坐标 (N_total)
+        int* cell_num, int* vp_cell, int N_sub)
 {
-    for(int i = blockIdx.x*blockDim.x + threadIdx.x;
-        i < N;
-        i += blockDim.x*gridDim.x)
-    {
-        int j  = sub[i];
-        int ix = int(floorf(px[j]*inv_hx));
-        int iy = int(floorf(py[j]*inv_hy));
-        ix = max(0,min(ix,rshx-1));
-        iy = max(0,min(iy,rshy-1));
-        int cell = ix*rshy + iy;
-        vp_cell[i] = cell;
-        atomicAdd(cell_num + cell, 1);
-    }
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if(i >= N_sub) return;
+
+    int I  = sub[i];             // 全局粒子索引
+    float2 pos = p[I];           // ★ 直接取 float2
+    int ix = int(floorf(pos.x * inv_hx));
+    int iy = int(floorf(pos.y * inv_hy));
+    ix = min(max(ix,0), rshx-1);
+    iy = min(max(iy,0), rshy-1);
+
+    int cell = ix * rshy + iy;   // 与 CPU 完全一致
+    vp_cell[i] = cell;
+    atomicAdd(cell_num + cell, 1);
 }
 
 __global__ void counting_sort_kernel(
@@ -40,7 +40,7 @@ __global__ void counting_sort_kernel(
 
 /* -------- Host wrapper -------- */
 void FillCells_cuda(int rshx,int rshy,float Lx,float Ly,int N, const int* d_sub,
-                    const float* d_px,const float* d_py,
+                    const float2* d_p,
                     int* d_cell_num,int* d_cell_acc,int* d_vp_cell)
 {
     int cell_cnt = rshx * rshy;
@@ -51,8 +51,8 @@ void FillCells_cuda(int rshx,int rshy,float Lx,float Ly,int N, const int* d_sub,
 
     int threads = 256;
     int blocks  = (N + threads - 1) / threads;
-    fill_cells_kernel<<<blocks, threads>>>(rshx,rshy,inv_hx,inv_hy, d_sub,
-                                           d_px,d_py,d_cell_num,d_vp_cell,N);
+    FillCells_kernel<<<blocks, threads>>>(rshx,rshy,inv_hx,inv_hy, d_sub,
+                                           d_p,d_cell_num,d_vp_cell,N);
     cudaDeviceSynchronize();
 
     // 前缀和

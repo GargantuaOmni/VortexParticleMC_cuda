@@ -93,6 +93,7 @@ int main(int argc, char* argv[]){
 
         else if (backend == Backend::CUDA) {
 #if defined(USE_CUDA)
+            /*
             cudaMemcpy(thrust::raw_pointer_cast(d_px.data()),
            pos_x.data(), N_current * sizeof(float),
            cudaMemcpyHostToDevice);
@@ -135,6 +136,7 @@ int main(int argc, char* argv[]){
                        N_current * sizeof(int), cudaMemcpyDeviceToHost);
             cudaMemcpy(cell_acc.data(), thrust::raw_pointer_cast(d_cell_acc.data()),
                        cell_cnt * sizeof(int), cudaMemcpyDeviceToHost);
+*/
 #endif
         }
 
@@ -151,6 +153,7 @@ int main(int argc, char* argv[]){
                              {vp_cell.data(), static_cast<std::size_t>(N_current)},
                              {vp_map.data(), static_cast<std::size_t>(N_current)});
         }
+
 
         /* 调试断言 */
         int sum = std::accumulate(cell_num.begin(), cell_num.end(), 0);

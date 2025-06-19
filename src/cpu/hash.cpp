@@ -26,8 +26,11 @@ void FillCells_cpu(int rshx,int rshy,float Lx,float Ly,int N,
         vp_cell[i] = cell;
         ++cell_num[cell];
     }
-    std::exclusive_scan(cell_num.begin(), cell_num.end(),
-                        cell_acc.begin(), 0);
+    // std::exclusive_scan(cell_num.begin(), cell_num.end(), cell_acc.begin(), 0);
+    int cell_cnt = rshx * rshy;
+    cell_acc[0] = 0;
+    for(int c = 1; c < cell_cnt; ++c)
+        cell_acc[c] = cell_acc[c-1] + cell_num[c-1];   // exclusive
 }
 
 void CountingSort_cpu(int N,
@@ -37,8 +40,9 @@ void CountingSort_cpu(int N,
                       std::span<int> vp_map)
 {
     for (int i = N - 1; i >= 0; --i) {
-        int c   = vp_cell[i];
-        int dst = --cell_num[c] + cell_acc[c];
-        vp_map[dst] = i;
+        int c   = vp_cell[i];                    //
+        int dst = --cell_num[c] + cell_acc[c];   // exclusive
+        vp_map[dst] = i;                            //
+
     }
 }

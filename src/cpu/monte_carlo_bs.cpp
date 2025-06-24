@@ -59,7 +59,7 @@ MCBSEstimate monte_carlo_bs_cpu(
 
         float omega = evalVorticityAbs_cpu(
                          (sign>0? C.pos_view : C.neg_view),
-                         sp, sign, false, false, C.h_w);
+                         sp, sign, false, false, C.h_w, C.periodic);
 
         float Rdst = SamplingDiskRadius(dst, C.periodic, C.Lx, C.Ly);
         float alpha = 1.f/(2.f*M_PI*Rdst);
@@ -80,45 +80,40 @@ MCBSEstimate monte_carlo_bs_cpu(
     /**********  Part-2 : 1/r-Disk 采样  **********/
     for(int i=0;i<N2;++i)
     {
-        /* ---------- 主点 ---------- */
         float  R0   = SamplingDiskRadius(dst, C.periodic, C.Lx, C.Ly);
         float  a0   = 1.f/(2.f*M_PI*R0);
         float2 sp0  = sample_disk_biot_savart(rng, dst, R0);
         float  w0   = evalVorticityAbs_cpu((sign>0? C.pos_view:C.neg_view),
-                                           sp0, sign,false,false,C.h_w);
+                                           sp0, sign,false,false,C.h_w, C.periodic);
         accumulate(s , mis_contrib(dst, sp0, w0, w1,w2,cum,a0));
 
         if(auxiliary){
-            /* 左 */
             float RL = SamplingDiskRadius(dst_left, C.periodic,C.Lx,C.Ly);
             float aL = 1.f/(2.f*M_PI*RL);
             float2 spL = sample_disk_biot_savart(rng, dst_left, RL);
             float  wL  = evalVorticityAbs_cpu((sign>0? C.pos_view:C.neg_view),
-                                              spL, sign,false,false,C.h_w);
+                                              spL, sign,false,false,C.h_w, C.periodic);
             accumulate(s_l, mis_contrib(dst_left, spL, wL, w1,w2,cum,aL));
 
-            /* 右 */
             float RR = SamplingDiskRadius(dst_right, C.periodic,C.Lx,C.Ly);
             float aR = 1.f/(2.f*M_PI*RR);
             float2 spR = sample_disk_biot_savart(rng, dst_right, RR);
             float  wR  = evalVorticityAbs_cpu((sign>0? C.pos_view:C.neg_view),
-                                              spR, sign,false,false,C.h_w);
+                                              spR, sign,false,false,C.h_w, C.periodic);
             accumulate(s_r, mis_contrib(dst_right, spR, wR, w1,w2,cum,aR));
 
-            /* 上 */
             float RT = SamplingDiskRadius(dst_top, C.periodic,C.Lx,C.Ly);
             float aT = 1.f/(2.f*M_PI*RT);
             float2 spT = sample_disk_biot_savart(rng, dst_top, RT);
             float  wT  = evalVorticityAbs_cpu((sign>0? C.pos_view:C.neg_view),
-                                              spT, sign,false,false,C.h_w);
+                                              spT, sign,false,false,C.h_w, C.periodic);
             accumulate(s_t, mis_contrib(dst_top, spT, wT, w1,w2,cum,aT));
 
-            /* 下 */
             float RB = SamplingDiskRadius(dst_bottom, C.periodic,C.Lx,C.Ly);
             float aB = 1.f/(2.f*M_PI*RB);
             float2 spB = sample_disk_biot_savart(rng, dst_bottom, RB);
             float  wB  = evalVorticityAbs_cpu((sign>0? C.pos_view:C.neg_view),
-                                              spB, sign,false,false,C.h_w);
+                                              spB, sign,false,false,C.h_w, C.periodic);
             accumulate(s_b, mis_contrib(dst_bottom, spB, wB, w1,w2,cum,aB));
         }
     }

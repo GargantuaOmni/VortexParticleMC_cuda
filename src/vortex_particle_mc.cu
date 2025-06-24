@@ -29,32 +29,41 @@
 #include "analytical_flow.hpp"
 #include "monte_carlo_bs.hpp"
 
-int main() {
-    std::filesystem::create_directories("result");
+int main()
+{
+    std::filesystem::create_directories("result/vel");
 
-    SimParam param;
-    Simulation vp_mc_simulation(param);
-    vp_mc_simulation.init(4000);
+    /* ---------- 初始化 ---------- */
+    SimParam    param;
+    Simulation  vp_mc_simulation(param);
+    vp_mc_simulation.init(param.N_max);
 
-    const int NSTEPS = 10;
-    const int PNG_RES= 512;
+    const int NSTEPS = 3;
+    const int PNG_RES = 512;
 
+    //dump_vorticity_png(vp_mc_simulation, "result/step_init.png", PNG_RES, true);
 
-    std::cout << "Initialized ... " << std::endl;
-    std::cout << "Resolution: " << param.ResolutionX << ", " << param.ResolutionY << std::endl;//
-    // vp_mc_simulation.test_vorticity_grid(128);
-    for (int step = 0;NSTEPS < 10; step ++) {
-        vp_mc_simulation.step_cpu();
+    for(int step = 0; step < NSTEPS; ++step)
+    {
+#if defined(USE_CUDA) && defined(__CUDACC__)
+        /* ---- GPU ---- */
+        vp_mc_simulation.step_cuda(/*periodic=*/true);
+#else
+        /* ---- CPU ---- */
+        vp_mc_simulation.step_cpu(/*periodic=*/true);
+#endif
+        vp_mc_simulation.do_spatial_hashing();
 
-        std::ostringstream oss;
-        oss << "result/step_" << std::setw(4) << std::setfill('0') << step << ".png";
-        dump_vorticity_png(vp_mc_simulation, oss.str(), PNG_RES);
+        std::ostringstream oss_png, oss_svg;
+        oss_png << "result/step_" << std::setw(4) << std::setfill('0') << step << ".png";
+        oss_svg << "result/vel/vel_step_" << std::setw(4) << std::setfill('0') << step << ".svg";
 
-        std::cout << "frame " << step << " -> " << oss.str() << '\n';
+        dump_vorticity_png(vp_mc_simulation, oss_png.str(), PNG_RES, /*periodic=*/true);
+        dump_velocity_svg_centered(vp_mc_simulation, oss_svg.str(),
+                                   /*vel_scale=*/0.25f, /*periodic=*/true);
+
+        std::cout << "frame " << step << "  ->  " << oss_png.str() << '\n';
     }
-
-
-    std::cout << "Enter to exit ... " << std::endl;
 
     return 0;
 }
@@ -94,6 +103,7 @@ void Simulation::init(int num_of_p)
 #endif
     std::cout << "Try to invoke spatial hashing cuda building..."  << std::endl;
     do_spatial_hashing();
+    std::cout << "Spatial Hashing finished..."  << std::endl;
     std::cin.get();
 }
 
@@ -109,8 +119,6 @@ void Simulation::do_spatial_hashing()
 
     hash_pos_.resize_particles(int(sub_pos_.size()));
     hash_neg_.resize_particles(int(sub_neg_.size()));
-
-
 
 #if defined(USE_CUDA)
     const float2* d_p = particles_.d_p();
@@ -189,8 +197,6 @@ void Simulation::do_spatial_hashing()
 
 }
 
-
-
 VorticityView Simulation::makePosView(const float* w_ptr) const
 {
     const SpatialHash& H = hash_pos_;    //
@@ -249,7 +255,7 @@ void Simulation::test_vorticity_grid(int res /*=128*/)
     auto kernel = [=] __device__ (int idx){
         int ix = idx / res, iy = idx % res;
         float2 p = {(ix+0.5f)*step, (iy+0.5f)*step};
-        float v_h = queryVorticityAbs(viewPosHash_d , p, +1,false,false,h_w);
+        float v_h = queryVorticityAbs(viewPosHash_d , p, +1,false,false,h_w, false);
         float v_n = queryVorticityAbsNaive(viewPosNaive_d, p, +1,false,false,h_w);
         hash_ptr[idx]  = v_h;
         naive_ptr[idx] = v_n;
@@ -298,11 +304,11 @@ void Simulation::test_vorticity_grid(int res /*=128*/)
             float2 p = { (ix+0.5f)*step, (iy+0.5f)*step };
 
             float v_hash =
-                  evalVorticityAbs_cpu(viewPosHash, p, +1, false, true, h_w);
+                  evalVorticityAbs_cpu(viewPosHash, p, +1, false, true, h_w, false);
                   // - evalVorticityAbs_cpu(viewNegHash, p, -1, false, true, h_w);
 
             float v_naive =
-                  evalVorticityAbs_cpu(viewPosNaive, p, +1, false, true, h_w);
+                  evalVorticityAbs_cpu(viewPosNaive, p, +1, false, true, h_w, false);
                   // - evalVorticityAbs_cpu(viewNegNaive, p, -1, false, true, h_w);
 
             field_hash[ix*res + iy]  = v_hash;
@@ -317,8 +323,8 @@ void Simulation::test_vorticity_grid(int res /*=128*/)
     for(int i = 0; i < particles_.N_cur; ++i)
     {
         float2 p = particles_.pos[i];
-        float v_hash  = evalVorticityAbs_cpu(makePosView(),      p, +1,false,false,P_.h_w);
-        float v_naive = evalVorticityAbs_cpu(makePosViewNaive(), p, +1,false,false,P_.h_w);
+        float v_hash  = evalVorticityAbs_cpu(makePosView(),      p, +1,false,false,P_.h_w, false);
+        float v_naive = evalVorticityAbs_cpu(makePosViewNaive(), p, +1,false,false,P_.h_w, false);
 
         /*std::cout << std::setw(3) << i
                   << "  hash="  << std::scientific << v_hash

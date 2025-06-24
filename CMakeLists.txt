@@ -62,6 +62,9 @@ if(USE_CUDA)
     target_link_libraries(vortex_method_mc PRIVATE hash_cuda)
     target_link_libraries(vortex_method_mc PRIVATE build_particle_set_cuda)
     target_link_libraries(vortex_method_mc PRIVATE utilities)
+    target_link_libraries(vortex_method_mc PRIVATE monte_carlo_bs_cuda)
+    target_link_libraries(vortex_method_mc PRIVATE simulation_step_cuda)
+    target_compile_definitions(vortex_method_mc PUBLIC USE_CUDA)
 
     set_target_properties(vortex_method_mc PROPERTIES
             CUDA_SEPARABLE_COMPILATION ON
@@ -71,6 +74,8 @@ if(USE_CUDA)
     target_compile_options(vortex_method_mc PRIVATE
             $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr --expt-extended-lambda>
     )
+
+
 else()
     target_link_libraries(vortex_method_mc PRIVATE utilities)
 

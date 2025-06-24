@@ -65,4 +65,26 @@ if(USE_CUDA)
             $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr --expt-extended-lambda>
     )
     target_compile_definitions(build_particle_set_cuda PUBLIC USE_CUDA)
+
+
+    add_library(monte_carlo_bs_cuda STATIC ${PROJECT_SOURCE_DIR}/src/cuda/monte_carlo_bs.cu)
+    target_compile_definitions(monte_carlo_bs_cuda PUBLIC USE_CUDA)
+    target_include_directories(monte_carlo_bs_cuda PUBLIC ${PROJECT_SOURCE_DIR}/include)
+    target_compile_options(monte_carlo_bs_cuda PRIVATE
+            $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr --expt-extended-lambda>
+    )
+    target_compile_options(monte_carlo_bs_cuda PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-lineinfo  -G>)
+
+
+    add_library(simulation_step_cuda STATIC ${PROJECT_SOURCE_DIR}/src/cuda/simulation_step.cu)
+    target_compile_definitions(simulation_step_cuda PUBLIC USE_CUDA)
+    target_include_directories(simulation_step_cuda PUBLIC ${PROJECT_SOURCE_DIR}/include)
+    target_compile_options(simulation_step_cuda PRIVATE
+            $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr --expt-extended-lambda>
+    )
+    target_compile_options(simulation_step_cuda PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-lineinfo  -G>)
+
+
+    target_link_libraries(simulation_step_cuda PUBLIC monte_carlo_bs_cuda)
+
 endif()

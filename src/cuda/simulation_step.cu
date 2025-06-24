@@ -1,10 +1,15 @@
 #include "monte_carlo_bs.cuh"
+#include "device_vector_alias.hpp"
+#include "vortex_particle_mc.hpp"
 #include <thrust/copy.h>
+#include <iostream>
 
 #define TPB 128
 
-void Simulation::step_cuda()
+
+void Simulation::step_cuda(bool periodic)
 {
+    std::cout << "Simulation::step_cuda" << std::endl;
     MCBSCtx_d dctx;
     dctx.sub_pos   = raw_ptr(sub_pos_);
     dctx.sub_neg   = raw_ptr(sub_neg_);
@@ -18,20 +23,31 @@ void Simulation::step_cuda()
     dctx.cum_pos   = cum_pos_;
     dctx.cum_neg   = cum_neg_;
     dctx.Lx = P_.Lx; dctx.Ly = P_.Ly;
-    dctx.periodic  = false;
+    dctx.periodic  = periodic;
     dctx.pos_view  = makePosView();
     dctx.neg_view  = makeNegView();
 
-    dvec<float2> d_vel_p(ps.N_cur), d_vel_n(ps.N_cur);
+    std::cout << "debug 01" << std::endl;
 
-    int blocks = ps.N_cur;
-    monte_carlo_bs_kernel<<<blocks,TPB>>>(ps, dctx,
+#if defined(USE_CUDA)
+    std::cout << "debug 01" << std::endl;
+#endif
+
+    dvec<float2> d_vel_p(particles_.N_cur), d_vel_n(particles_.N_cur);
+
+    int blocks = particles_.N_cur;
+    cudaMemset(raw_ptr(d_vel_p), 0, particles_.N_cur*sizeof(float2));
+    cudaMemset(raw_ptr(d_vel_n), 0, particles_.N_cur*sizeof(float2));
+
+    monte_carlo_bs_kernel_safe<<<blocks,TPB>>>(particles_, dctx,
         P_.N1, P_.N2, /*sign=*/+1, raw_ptr(d_vel_p));
-    monte_carlo_bs_kernel<<<blocks,TPB>>>(ps, dctx,
+    monte_carlo_bs_kernel_safe<<<blocks,TPB>>>(particles_, dctx,
         P_.N1, P_.N2, /*sign=*/-1, raw_ptr(d_vel_n));
     cudaDeviceSynchronize();
 
-    particles_.vel.resize(ps.N_cur);
+    std::cout << "debug 02" << std::endl;
+
+    particles_.vel.resize(particles_.N_cur);
     thrust::transform(d_vel_p.begin(), d_vel_p.end(),
                       d_vel_n.begin(),
                       particles_.vel.begin(),
@@ -39,16 +55,18 @@ void Simulation::step_cuda()
                           return make_float2(a.x-b.x, a.y-b.y);
                       });
 
-    thrust::transform(ps.pos.begin(), ps.pos.end(),
+    thrust::transform(particles_.pos.begin(), particles_.pos.end(),
                       particles_.vel.begin(),
-                      ps.pos.begin(),
+                      particles_.pos.begin(),
                       [dt=P_.dt] __device__ (float2 p, float2 v){
                           return make_float2(p.x+v.x*dt, p.y+v.y*dt);
                       });
 
-    thrust::for_each(ps.pos.begin(), ps.pos.end(),
+    thrust::for_each(particles_.pos.begin(), particles_.pos.end(),
                      [Lx=P_.Lx, Ly=P_.Ly] __device__ (float2& p){
                         p.x -= floorf(p.x / Lx) * Lx;
                         p.y -= floorf(p.y / Ly) * Ly;
                      });
+
+    std::cout << "debug 03" << std::endl;
 }

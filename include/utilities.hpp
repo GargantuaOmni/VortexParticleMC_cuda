@@ -2,9 +2,9 @@
 
 #include "device_vector_alias.hpp"
 
-#define M_PI 3.14159265358979323846
+#define M_PI 3.14159265358979323846f
 
-inline __device__ float cubicSplinePDF(float r, float h_w)
+__device__ __host__ inline float cubicSplinePDF(float r, float h_w)
 {
     const float pi   = 3.141592653589793f;
     const float sig2 = 40.f / (7.f * pi * h_w * h_w);

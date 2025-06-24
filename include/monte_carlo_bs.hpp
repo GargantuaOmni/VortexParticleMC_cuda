@@ -55,7 +55,7 @@ int sample_vorticity_idx_cdf(std::mt19937& gen,
 float2 sample_disk_biot_savart(std::mt19937& gen,
                                       const float2& center, float R);
 
-static inline float2 biot_savart_kernel(const float2 &x, const float2 &y)
+__device__ inline float2 biot_savart_kernel(const float2 &x, const float2 &y)
 {
     float2 r {x.x - y.x, x.y - y.y};
     float  inv_r2 = 1.f / (r.x * r.x + r.y * r.y + 1e-8f);
@@ -68,7 +68,7 @@ static inline void accumulate(float2& acc, const float2& add)
     acc.x += add.x; acc.y += add.y;
 }
 
-inline float SamplingDiskRadius(const float2& dst,
+__host__ __device__ inline float SamplingDiskRadius(const float2& dst,
                                 bool periodic,
                                 const float & Lx, const float & Ly)
 {

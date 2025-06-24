@@ -5,6 +5,7 @@
 #include <vector>
 #include <cassert>
 #include <cmath>
+#include <random>
 #include <device_vector_alias.hpp>
 #include "spatial_hasher.hpp"
 #include <spatial_hash.hpp>
@@ -34,6 +35,7 @@ struct ParticleSet
         N_cur = cap;              // Initialize all particles as active, however, we should set N_cur when we really seed particles
 
         pos.resize(cap);
+        vel.resize(cap);
         pos_left.resize(cap);
         pos_right.resize(cap);
         pos_top.resize(cap);
@@ -49,21 +51,21 @@ struct ParticleSet
     }
 
     /* ---- GPU kernel raw pointer getter ---- */
-    float2* d_p()       { return raw_ptr(pos); }
-    float2* d_pt()       { return raw_ptr(pos_temp); }
-    float2* d_v()       { return raw_ptr(vel); }
+    __host__ __device__ float2* d_p()       { return raw_ptr(pos); }
+    __host__ __device__ float2* d_pt()       { return raw_ptr(pos_temp); }
+    __host__ __device__ float2* d_v()       { return raw_ptr(vel); }
 
-    float* d_omega()    { return raw_ptr(omega); }
-    float* d_omega_field()    { return raw_ptr(omega_field); }
-    float* d_jac()      { return raw_ptr(jac); }
+    __host__ __device__ float* d_omega()    { return raw_ptr(omega); }
+    __host__ __device__ float* d_omega_field()    { return raw_ptr(omega_field); }
+    __host__ __device__ float* d_jac()      { return raw_ptr(jac); }
 
-    const float2* d_p()     const { return raw_ptr(pos); }
-    const float2* d_pt()    const { return raw_ptr(pos_temp); }
-    const float2* d_v()     const { return raw_ptr(vel); }
+    __host__ __device__ const float2* d_p()     const { return raw_ptr(pos); }
+    __host__ __device__ const float2* d_pt()    const { return raw_ptr(pos_temp); }
+    __host__ __device__ const float2* d_v()     const { return raw_ptr(vel); }
 
-    const float*  d_omega() const { return raw_ptr(omega); }
-    const float*  d_omega_field() const { return raw_ptr(omega_field); }
-    const float*  d_jac()   const { return raw_ptr(jac); }
+    __host__ __device__ const float*  d_omega() const { return raw_ptr(omega); }
+    __host__ __device__ const float*  d_omega_field() const { return raw_ptr(omega_field); }
+    __host__ __device__ const float*  d_jac()   const { return raw_ptr(jac); }
 
 };
 
@@ -88,14 +90,14 @@ struct VorticityView
 struct SimParam
 {
     /* Parameters */
-    float dt          = 0.1f;
+    float dt          = 0.001f;
     float Lx          = 1.f;
     float Ly          = 1.f;
     int   ResolutionX = 200;   // Nx
-    float hwr         = 4.f;   // = h_w / h
+    float hwr         = 8.f;   // = h_w / h
     int   N_max       = 4000;
-    int N1          = 100;
-    int N2          = 100;
+    int N1          = 1000;
+    int N2          = 1000;
 
     /* Parameters for later computations */
     int   ResolutionY = 0;     // Ny
@@ -104,10 +106,10 @@ struct SimParam
     int length_iCDF  = 10;
 
     /* ------------ Construction ------------ */
-    explicit SimParam(float dt_ = 0.1f,
+    explicit SimParam(float dt_ = 0.00001f,
                       float Lx_ = 1.f, float Ly_ = 1.f,
                       int   resX = 200,
-                      float hwr_ = 4.f)
+                      float hwr_ = 12.f)
     : dt(dt_), Lx(Lx_), Ly(Ly_), ResolutionX(resX), hwr(hwr_)
     {
         assert(ResolutionX > 0 && "ResolutionX must be positive");
@@ -122,6 +124,10 @@ struct SimParam
 
 class Simulation {
 public:
+
+    ParticleSet particles_;
+    SimParam   P_;
+
     explicit Simulation(SimParam p);
 
     void init(int num_of_p);     //
@@ -131,10 +137,11 @@ public:
     void build_subsets_cpu();
     void build_subsets_cuda();
 
-    void step_cpu();
-    void step_cuda();
+    std::mt19937 rng;
+    void step_cpu(bool periodic);
+    void step_cuda(bool periodic);
 
-    inline float eval_vorticity_cpu(float2 p) const;
+    inline float eval_vorticity_cpu(float2 p, bool periodic) const;
 
 
     /* --- Test functions --- */
@@ -146,11 +153,8 @@ public:
     VorticityView makePosViewNaive(const float* w_ptr = nullptr) const;
     VorticityView makeNegViewNaive(const float* w_ptr = nullptr) const;
 
-
-
 private:
-    SimParam   P_;
-    ParticleSet particles_;
+
     SpatialHash hash_pos_, hash_neg_;
     dvec<int>   sub_pos_, sub_neg_; // Sub-index for the positive and negative particles
     dvec<float> cdf_pos_, cdf_neg_; // cdf
@@ -169,12 +173,13 @@ float evalVorticityAbs_cpu(const VorticityView& v,
                            int sign,                   //
                            bool use_signed,
                            bool exclude_center,
-                           float h_w);
+                           float h_w,
+                           bool periodic);
 
 
-inline float Simulation::eval_vorticity_cpu(float2 p) const
+inline float Simulation::eval_vorticity_cpu(float2 p, bool periodic) const
 {
-    float w_pos = evalVorticityAbs_cpu(pos_view, p, 1, false, false, P_.h_w);
-    float w_neg = evalVorticityAbs_cpu(neg_view, p, -1, false, false, P_.h_w);
+    float w_pos = evalVorticityAbs_cpu(pos_view, p, 1, false, false, P_.h_w, periodic);
+    float w_neg = evalVorticityAbs_cpu(neg_view, p, -1, false, false, P_.h_w, periodic);
     return w_pos - w_neg;
 }

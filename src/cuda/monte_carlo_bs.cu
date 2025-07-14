@@ -11,13 +11,17 @@ namespace cg = cooperative_groups;
 #define TPB 128
 
 __device__ float evalVorticityAbs_gpu(const VorticityView& v, float2 p,
-                                      int sign, bool, bool, float h_w)
+                                      int sign, bool, bool, float h_w, bool periodic)
 {
     float sum = 0.f;
+    if (periodic) {
+        p.x -= floorf(p.x / v.Lx) * v.Lx;
+        p.y -= floorf(p.y / v.Ly) * v.Ly;
+    }
     for(int i=0;i<v.N;++i){
         float2 q = v.pos[i];
         float  w = fabsf(v.w[i]);
-        float2 r = {p.x-q.x, p.y-q.y};
+        float2 r = {wrap_delta(p.x-q.x, v.Lx, v.InvLx, periodic) , wrap_delta(p.y-q.y, v.Ly, v.InvLy, periodic)};
         float  d = sqrtf(r.x*r.x + r.y*r.y);
         if(d < 2.f*h_w)
             sum += w * cubicSplinePDF(d, h_w);   //
@@ -25,7 +29,8 @@ __device__ float evalVorticityAbs_gpu(const VorticityView& v, float2 p,
     return sum;
 }
 
-__device__ inline float2 mis_contrib_dev(const float2& dst,
+__device__ inline float2 mis_contrib_dev(MCBSCtx_d ctx,
+                          const float2& dst,
                           const float2& sp,
                           float  omega,              // |ω(sp)|
                           float  w1, float  w2,      // N1 / (N1+N2),   N2 / (N1+N2)
@@ -34,7 +39,7 @@ __device__ inline float2 mis_contrib_dev(const float2& dst,
 {
     if(omega <= 0.f) return {0.f, 0.f};
 
-    float2 r = {dst.x - sp.x, dst.y - sp.y};
+    float2 r = { wrap_delta(dst.x - sp.x, ctx.Lx, ctx.InvLx, ctx.periodic),wrap_delta(dst.y - sp.y, ctx.Ly, ctx.InvLy, ctx.periodic) };
     float   r_norm = std::max(length(r), 1e-6f);
     float2  k = biot_savart_kernel(dst, sp);
 
@@ -103,9 +108,9 @@ __global__ void monte_carlo_bs_kernel(
 
         float omega = evalVorticityAbs_gpu(
                         sign>0 ? ctx.pos_view : ctx.neg_view,
-                        sp, sign, false, false, ctx.h_w);
+                        sp, sign, false, false, ctx.h_w, ctx.periodic);
 
-        float2 inc = mis_contrib_dev(dst, sp, omega,
+        float2 inc = mis_contrib_dev(ctx, dst, sp, omega,
                                      w1, w2, cum, alpha_dst);
         atomicAdd(&ssum.x, inc.x);
         atomicAdd(&ssum.y, inc.y);
@@ -118,9 +123,9 @@ __global__ void monte_carlo_bs_kernel(
         float2 sp  = sample_disk_biot_savart(rng, dst, Rdst);
         float  omega = evalVorticityAbs_gpu(
                          sign>0 ? ctx.pos_view : ctx.neg_view,
-                         sp, sign, false, false, ctx.h_w);
+                         sp, sign, false, false, ctx.h_w, ctx.periodic);
 
-        float2 inc = mis_contrib_dev(dst, sp, omega,
+        float2 inc = mis_contrib_dev(ctx, dst, sp, omega,
                                      w1, w2, cum, alpha_dst);
         atomicAdd(&ssum.x, inc.x);
         atomicAdd(&ssum.y, inc.y);
@@ -179,9 +184,9 @@ __global__ void monte_carlo_bs_kernel_safe(
 
         float omega = evalVorticityAbs_gpu(
                         sign > 0 ? ctx.pos_view : ctx.neg_view,
-                        sp, sign, false, false, ctx.h_w);
+                        sp, sign, false, false, ctx.h_w, ctx.periodic);
 
-        float2 inc = mis_contrib_dev(dst, sp, omega, w1, w2, cum, alpha_dst);
+        float2 inc = mis_contrib_dev(ctx, dst, sp, omega, w1, w2, cum, alpha_dst);
         local_acc.x += inc.x;
         local_acc.y += inc.y;
 
@@ -194,9 +199,9 @@ __global__ void monte_carlo_bs_kernel_safe(
 
         float omega = evalVorticityAbs_gpu(
                         sign > 0 ? ctx.pos_view : ctx.neg_view,
-                        sp, sign, false, false, ctx.h_w);
+                        sp, sign, false, false, ctx.h_w, ctx.periodic);
 
-        float2 inc = mis_contrib_dev(dst, sp, omega, w1, w2, cum, alpha_dst);
+        float2 inc = mis_contrib_dev(ctx, dst, sp, omega, w1, w2, cum, alpha_dst);
         local_acc.x += inc.x;
         local_acc.y += inc.y;
 

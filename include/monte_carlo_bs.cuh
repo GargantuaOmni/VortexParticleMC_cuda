@@ -29,6 +29,8 @@ struct MCBSCtx_d {
     float        cum_neg;
 
     float        Lx, Ly;
+    float        InvLx;
+    float        InvLy;
     bool         periodic;
 
     VorticityView pos_view;
@@ -86,4 +88,12 @@ __device__ inline float2 sample_disk_biot_savart(curandStatePhilox4_32_10_t& rng
     float phi = 2 * M_PI * curand_uniform(&rng);
     float r   = R * sqrtf(curand_uniform(&rng));    // CDF ∝ r²
     return {center.x + r*cosf(phi), center.y + r*sinf(phi)};
+}
+
+
+HD inline float wrap_delta(float d, float L, float InvL, bool periodic)
+{
+    if (!periodic) return d;
+    float k = floorf(d * InvL + 0.5f);
+    return d - k * L;
 }

@@ -21,8 +21,10 @@
 #include <thrust/functional.h>
 #include <thrust/scan.h>
 #include <thrust/count.h>
+#include <thrust/sequence.h>
 #include <vortex_particle_mc.hpp>
 #include <vorticity_query.cuh>
+#include "cg_rbf_init.cuh"
 #endif
 
 #include "stb_image_write.h"
@@ -45,13 +47,7 @@ int main()
 
     for(int step = 0; step < NSTEPS; ++step)
     {
-#if defined(USE_CUDA) && defined(__CUDACC__)
-        /* ---- GPU ---- */
-        vp_mc_simulation.step_cuda(/*periodic=*/true);
-#else
-        /* ---- CPU ---- */
-        vp_mc_simulation.step_cpu(/*periodic=*/true);
-#endif
+
         vp_mc_simulation.do_spatial_hashing();
 
         std::ostringstream oss_png, oss_svg;
@@ -61,6 +57,14 @@ int main()
         dump_vorticity_png(vp_mc_simulation, oss_png.str(), PNG_RES, /*periodic=*/true);
         dump_velocity_svg_centered(vp_mc_simulation, oss_svg.str(),
                                    /*vel_scale=*/0.25f, /*periodic=*/true);
+
+#if defined(USE_CUDA) && defined(__CUDACC__)
+        /* ---- GPU ---- */
+        vp_mc_simulation.step_cuda(/*periodic=*/true);
+#else
+        /* ---- CPU ---- */
+        vp_mc_simulation.step_cpu(/*periodic=*/true);
+#endif
 
         std::cout << "frame " << step << "  ->  " << oss_png.str() << '\n';
     }
@@ -76,7 +80,6 @@ void Simulation::init(int num_of_p)
     particles_.resize(P_.N_max);
     particles_.set_n_current(num_of_p);
 
-    /* ---- 1. 生成随机粒子，赋 Taylor–Green ω ---- */
     std::vector<float2> host_pos(num_of_p);
     std::vector<float>  host_omega(num_of_p);
 
@@ -92,6 +95,10 @@ void Simulation::init(int num_of_p)
 #if defined(USE_CUDA) && defined(__CUDACC__)
     thrust::copy(host_pos.begin(),   host_pos.end(),   particles_.pos.begin());
     thrust::copy(host_omega.begin(), host_omega.end(), particles_.omega.begin());
+
+    prepare_rhs_b();
+    conjugate_gradient_rbf(*this);
+
     std::cout << "particles_.omega.size()    "  << particles_.omega.size() << std::endl;
 
     std::cout << "Try to invoke subsets cuda building..." << std::endl;
@@ -104,7 +111,7 @@ void Simulation::init(int num_of_p)
     std::cout << "Try to invoke spatial hashing cuda building..."  << std::endl;
     do_spatial_hashing();
     std::cout << "Spatial Hashing finished..."  << std::endl;
-    std::cin.get();
+    //std::cin.get();
 }
 
 
@@ -196,6 +203,57 @@ void Simulation::do_spatial_hashing()
     neg_view = makeNegView();
 
 }
+#if defined(USE_CUDA)
+void Simulation::build_global_hash()
+{
+    const int N = particles_.N_cur;
+    sub_all_.resize(N);
+    thrust::sequence(sub_all_.begin(), sub_all_.end(), 0);
+
+    const int rshx = P_.ResolutionX / int(P_.hwr) / 2;
+    const int rshy = P_.ResolutionY / int(P_.hwr) / 2;
+    hash_all_.resize_cells(rshx, rshy);
+    hash_all_.resize_particles(N);
+
+    FillCells_cuda(rshx, rshy, P_.Lx, P_.Ly,
+                   N,
+                   raw_ptr(sub_all_), particles_.d_p(),
+                   raw_ptr(hash_all_.cell_num),
+                   raw_ptr(hash_all_.cell_acc),
+                   raw_ptr(hash_all_.vp_cell));
+
+    CountingSort_cuda(N,
+                      raw_ptr(hash_all_.cell_num),
+                      raw_ptr(hash_all_.cell_acc),
+                      raw_ptr(hash_all_.vp_cell),
+                      raw_ptr(hash_all_.vp_sort));
+}
+
+void Simulation::prepare_rhs_b()
+{
+    int N = particles_.N_cur;                       //
+    particles_.omega_field.resize(N);
+    auto pos_ptr = raw_ptr(particles_.pos);         // float2*
+    auto b_ptr   = raw_ptr(particles_.omega_field); // float*
+
+    std::cout << "RHS started" << std::endl;
+
+    thrust::transform(
+    thrust::make_counting_iterator<int>(0),
+    thrust::make_counting_iterator<int>(N),
+    thrust::device_pointer_cast(b_ptr),          //
+    [=] __device__ (int idx) {
+        float2 p = pos_ptr[idx];                //
+        return taylor_green_vorticity(p);       //
+    });
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        fprintf(stderr, "fill_rhs kernel failed: %s\n", cudaGetErrorString(err));
+    }
+
+    std::cout << "RHS prepared" << std::endl;
+}
+#endif
 
 VorticityView Simulation::makePosView(const float* w_ptr) const
 {
@@ -206,7 +264,7 @@ VorticityView Simulation::makePosView(const float* w_ptr) const
              raw_ptr(H.vp_sort),         // Local counting sort
              raw_ptr(H.cell_acc),
              H.rshx, H.rshy,
-             P_.Lx, P_.Ly,cnt_pos_, raw_ptr(sub_pos_) };        //
+             P_.Lx, P_.Ly,1.0f / P_.Lx, 1.0f / P_.Ly ,cnt_pos_, raw_ptr(sub_pos_) };        //
 }
 
 
@@ -219,22 +277,33 @@ VorticityView Simulation::makeNegView(const float* w_ptr) const
              raw_ptr(H.vp_sort),         // Local counting sort
              raw_ptr(H.cell_acc),
              H.rshx, H.rshy,
-              P_.Lx, P_.Ly,cnt_neg_, raw_ptr(sub_neg_) };        //
+              P_.Lx, P_.Ly,1.0f / P_.Lx, 1.0f / P_.Ly ,cnt_neg_, raw_ptr(sub_neg_) };        //
 }
 
 VorticityView Simulation::makePosViewNaive(const float* w_ptr) const
 {
     return { particles_.d_p(), w_ptr ? w_ptr : particles_.d_omega(), particles_.N_cur,
              nullptr, nullptr, 0, 0,
-        P_.Lx, P_.Ly,cnt_pos_, raw_ptr(sub_pos_) };
+        P_.Lx, P_.Ly,1.0f / P_.Lx, 1.0f / P_.Ly ,cnt_pos_, raw_ptr(sub_pos_) };
 }
 VorticityView Simulation::makeNegViewNaive(const float* w_ptr) const
 {
     return { particles_.d_p(), w_ptr ? w_ptr : particles_.d_omega(), particles_.N_cur,
              nullptr, nullptr, 0, 0,
-        P_.Lx, P_.Ly,cnt_neg_, raw_ptr(sub_neg_) };
+        P_.Lx, P_.Ly,1.0f / P_.Lx, 1.0f / P_.Ly ,cnt_neg_, raw_ptr(sub_neg_) };
 }
 
+VorticityView Simulation::makeAllView(const float* w_ptr) const
+{
+    const SpatialHash& H = hash_all_;
+    return { particles_.d_p(),
+             w_ptr ? w_ptr : particles_.d_omega(),
+             particles_.N_cur,
+             raw_ptr(H.vp_sort), raw_ptr(H.cell_acc),
+             H.rshx, H.rshy, P_.Lx, P_.Ly,
+             1.0f / P_.Lx, 1.0f / P_.Ly ,particles_.N_cur,     // cnt_view
+             raw_ptr(sub_all_) };
+}
 
 void Simulation::test_vorticity_grid(int res /*=128*/)
 {

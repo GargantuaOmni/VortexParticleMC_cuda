@@ -23,6 +23,7 @@ void Simulation::step_cuda(bool periodic)
     dctx.cum_pos   = cum_pos_;
     dctx.cum_neg   = cum_neg_;
     dctx.Lx = P_.Lx; dctx.Ly = P_.Ly;
+    dctx.InvLx = 1.0 / P_.Lx; dctx.InvLy = 1.0 / P_.Ly;
     dctx.periodic  = periodic;
     dctx.pos_view  = makePosView();
     dctx.neg_view  = makeNegView();

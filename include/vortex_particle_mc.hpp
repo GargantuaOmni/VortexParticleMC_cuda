@@ -82,6 +82,7 @@ struct VorticityView
     const int* cell_acc;
     int        rshx{}, rshy{};
     float      Lx, Ly;
+    float      InvLx, InvLy;
     int        cnt_view;
 
     const int* sub;              // local id -> global id
@@ -95,7 +96,7 @@ struct SimParam
     float Ly          = 1.f;
     int   ResolutionX = 200;   // Nx
     float hwr         = 8.f;   // = h_w / h
-    int   N_max       = 4000;
+    int   N_max       = 6000;
     int N1          = 1000;
     int N2          = 1000;
 
@@ -105,11 +106,13 @@ struct SimParam
     float h_w        = 0.f;    // h_w = hwr * h
     int length_iCDF  = 10;
 
+    bool periodic = true;
+
     /* ------------ Construction ------------ */
-    explicit SimParam(float dt_ = 0.00001f,
+    explicit SimParam(float dt_ = 0.01f,
                       float Lx_ = 1.f, float Ly_ = 1.f,
                       int   resX = 200,
-                      float hwr_ = 12.f)
+                      float hwr_ = 16.f)
     : dt(dt_), Lx(Lx_), Ly(Ly_), ResolutionX(resX), hwr(hwr_)
     {
         assert(ResolutionX > 0 && "ResolutionX must be positive");
@@ -133,16 +136,17 @@ public:
     void init(int num_of_p);     //
 
     void do_spatial_hashing();
+    void build_global_hash();
 
     void build_subsets_cpu();
     void build_subsets_cuda();
+    void prepare_rhs_b();
 
     std::mt19937 rng;
     void step_cpu(bool periodic);
     void step_cuda(bool periodic);
 
     inline float eval_vorticity_cpu(float2 p, bool periodic) const;
-
 
     /* --- Test functions --- */
     void test_vorticity_grid(int res);
@@ -153,9 +157,13 @@ public:
     VorticityView makePosViewNaive(const float* w_ptr = nullptr) const;
     VorticityView makeNegViewNaive(const float* w_ptr = nullptr) const;
 
+    VorticityView makeAllView(const float* w_ptr=nullptr) const;
+
 private:
 
-    SpatialHash hash_pos_, hash_neg_;
+    SpatialHash hash_pos_, hash_neg_, hash_all_;
+
+    dvec<int>   sub_all_;
     dvec<int>   sub_pos_, sub_neg_; // Sub-index for the positive and negative particles
     dvec<float> cdf_pos_, cdf_neg_; // cdf
     int         cnt_pos_{}, cnt_neg_{};

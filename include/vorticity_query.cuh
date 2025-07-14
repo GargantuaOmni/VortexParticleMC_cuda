@@ -1,6 +1,16 @@
 #pragma once
 #include "vortex_particle_mc.hpp"   // VorticityView, float2
 #include "device_vector_alias.hpp"
+#include "utilities.hpp"
+
+
+__host__ __device__ inline void minimum_image(float2& d, float Lx, float Ly){
+    if(d.x >  0.5f*Lx) d.x -= Lx;
+    if(d.x < -0.5f*Lx) d.x += Lx;
+    if(d.y >  0.5f*Ly) d.y -= Ly;
+    if(d.y < -0.5f*Ly) d.y += Ly;
+}
+
 
 inline __device__
 float queryVorticityAbs(const VorticityView& v,
@@ -42,10 +52,13 @@ float queryVorticityAbs(const VorticityView& v,
                 float2 d = { v.pos[I].x - p.x, v.pos[I].y - p.y };
                 // TODO: A lot of branches here, we need to optimize it
                 if(periodic){
+                    /*
                     if(d.x >  v.Lx - 2*v.Lx / v.rshx) d.x -= v.Lx;
                     if(d.x < -v.Lx + 2*v.Lx / v.rshx) d.x += v.Lx;
                     if(d.y >  v.Ly - 2*v.Ly / v.rshy) d.y -= v.Ly;
                     if(d.y < -v.Ly + 2*v.Ly / v.rshy) d.y += v.Ly;
+                    */
+                    minimum_image(d, v.Lx, v.Ly);
                 }
                 float r2 = d.x*d.x + d.y*d.y;
                 if(r2 > hh)                 continue;

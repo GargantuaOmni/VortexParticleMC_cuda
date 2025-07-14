@@ -64,6 +64,7 @@ if(USE_CUDA)
     target_link_libraries(vortex_method_mc PRIVATE utilities)
     target_link_libraries(vortex_method_mc PRIVATE monte_carlo_bs_cuda)
     target_link_libraries(vortex_method_mc PRIVATE simulation_step_cuda)
+    target_link_libraries(vortex_method_mc PRIVATE cg_rbf_init_cuda)
     target_compile_definitions(vortex_method_mc PUBLIC USE_CUDA)
 
     set_target_properties(vortex_method_mc PROPERTIES
@@ -72,9 +73,11 @@ if(USE_CUDA)
             CUDA_STANDARD_REQUIRED ON
     )
     target_compile_options(vortex_method_mc PRIVATE
-            $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr --expt-extended-lambda>
+            $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr --expt-extended-lambda >
     )
-
+    target_compile_options(vortex_method_mc PRIVATE
+            $<$<COMPILE_LANGUAGE:CUDA>:-lineinfo -G>
+    )
 
 else()
     target_link_libraries(vortex_method_mc PRIVATE utilities)

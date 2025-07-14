@@ -46,13 +46,16 @@ void Simulation::build_subsets_cuda()
                     [] __device__ (float w){ return w < 0.f; });
 
     std::cout << "Debug 1"  << std::endl;
-
     dvec<float> tmp(cnt_pos_);
-    thrust::copy_if(particles_.omega.begin(), particles_.omega.begin()+N,
-                    tmp.begin(),
-                    [] __device__ (float w){ return w > 0.f; });
-    thrust::inclusive_scan(tmp.begin(), tmp.end(), cdf_pos_.begin());
-    cum_pos_ = cdf_pos_.back();
+    if (cnt_pos_ == 0) cum_pos_ = 0.0;
+    else {
+        thrust::copy_if(particles_.omega.begin(), particles_.omega.begin()+N,
+                        tmp.begin(),
+                        [] __device__ (float w){ return w > 0.f; });
+        thrust::inclusive_scan(tmp.begin(), tmp.end(), cdf_pos_.begin());
+        cum_pos_ = cdf_pos_.back();
+    }
+
     if (cum_pos_ > 0.0f) {
         float inv = 1.0f / cum_pos_;
         thrust::transform(cdf_pos_.begin(), cdf_pos_.end(),
@@ -63,12 +66,15 @@ void Simulation::build_subsets_cuda()
     std::cout << "Debug 2"  << std::endl;
 
     tmp.resize(cnt_neg_);
-    thrust::copy_if(particles_.omega.begin(), particles_.omega.begin()+N,
+    if (cnt_neg_ == 0) cum_neg_ = 0.0;
+    else {
+        thrust::copy_if(particles_.omega.begin(), particles_.omega.begin()+N,
                     tmp.begin(),
                     [] __device__ (float w){ return w < 0.f; });
-    thrust::transform(tmp.begin(), tmp.end(), tmp.begin(), thrust::negate<float>()); // Abs
-    thrust::inclusive_scan(tmp.begin(), tmp.end(), cdf_neg_.begin());
-    cum_neg_ = cdf_neg_.back();
+        thrust::transform(tmp.begin(), tmp.end(), tmp.begin(), thrust::negate<float>()); // Abs
+        thrust::inclusive_scan(tmp.begin(), tmp.end(), cdf_neg_.begin());
+        cum_neg_ = cdf_neg_.back();
+    }
 
     std::cout << "Debug 3"  << std::endl;
 

@@ -73,7 +73,7 @@ if(USE_CUDA)
     target_compile_options(monte_carlo_bs_cuda PRIVATE
             $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr --expt-extended-lambda>
     )
-    target_compile_options(monte_carlo_bs_cuda PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-lineinfo  -G>)
+    target_compile_options(monte_carlo_bs_cuda PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-lineinfo>)
 
 
     add_library(simulation_step_cuda STATIC ${PROJECT_SOURCE_DIR}/src/cuda/simulation_step.cu)
@@ -82,9 +82,18 @@ if(USE_CUDA)
     target_compile_options(simulation_step_cuda PRIVATE
             $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr --expt-extended-lambda>
     )
-    target_compile_options(simulation_step_cuda PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-lineinfo  -G>)
-
-
+    target_compile_options(simulation_step_cuda PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-lineinfo>)
     target_link_libraries(simulation_step_cuda PUBLIC monte_carlo_bs_cuda)
+
+    add_library(cg_rbf_init_cuda STATIC ${PROJECT_SOURCE_DIR}/src/cuda/cg_rbf_init.cu)
+
+    target_include_directories(cg_rbf_init_cuda PUBLIC ${PROJECT_SOURCE_DIR}/include)
+    target_link_libraries(cg_rbf_init_cuda PUBLIC Thrust::Thrust)
+    target_compile_definitions(cg_rbf_init_cuda PUBLIC USE_CUDA)
+    target_compile_options(cg_rbf_init_cuda PRIVATE
+            $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr --expt-extended-lambda>
+    )
+    target_compile_options(cg_rbf_init_cuda PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-lineinfo>)
+
 
 endif()

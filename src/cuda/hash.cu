@@ -53,6 +53,13 @@ void FillCells_cuda(int rshx,int rshy,float Lx,float Ly,int N, const int* d_sub,
     int blocks  = (N + threads - 1) / threads;
     FillCells_kernel<<<blocks, threads>>>(rshx,rshy,inv_hx,inv_hy, d_sub,
                                            d_p,d_cell_num,d_vp_cell,N);
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        printf("Kernel %s failed (%s)  blocks=%d  threads=%d\n",
+               __func__, cudaGetErrorString(err),
+               blocks, threads);
+        return;           // 或 throw
+    }
     cudaDeviceSynchronize();
 
     // 前缀和
@@ -72,5 +79,13 @@ void CountingSort_cuda(int N,
                                               d_cell_acc,
                                               d_vp_map,
                                               N);
+
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        printf("Kernel %s failed (%s)  blocks=%d  threads=%d\n",
+               __func__, cudaGetErrorString(err),
+               blocks, threads);
+        return;           // 或 throw
+    }
     cudaDeviceSynchronize();
 }

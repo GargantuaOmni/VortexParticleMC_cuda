@@ -24,6 +24,8 @@ struct MCBSCtx {
     bool               periodic  = false;
     float              Lx        = 1.0f;
     float              Ly        = 1.0f;
+    float              InvLx        = 1.0f;
+    float              InvLy        = 1.0f;
     /* === scalar pre-computed in build_subsets_cpu() === */
     float              cum_pos   = 1.0f;      // Σ|ω|  positive
     float              cum_neg   = 1.0f;      // Σ|ω|  negative

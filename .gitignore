@@ -14,3 +14,10 @@
 /cmake-build-*/                 # CLion/VS cmake-build-xxx 
 /CMakeFiles/                    # CMake temporary files
 *.cmake                         # .cmake files
+
+
+##################################
+# Claude
+###################################
+/.claude
+.claude/

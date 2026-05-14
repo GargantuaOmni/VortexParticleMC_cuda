@@ -28,6 +28,8 @@ struct ParticleSet
     dvec<float> omega_field;      //
     dvec<float> jac;        // Jacobian
 
+    dvec<float4> F;
+
     /* ----  ---- */
     void resize(int cap)
     {
@@ -44,6 +46,7 @@ struct ParticleSet
         omega.resize(cap);
         omega_field.resize(cap);
         jac.resize(cap);
+        F.resize(cap);
     }
 
     void set_n_current(const int N_cur_) {
@@ -54,6 +57,7 @@ struct ParticleSet
     __host__ __device__ float2* d_p()       { return raw_ptr(pos); }
     __host__ __device__ float2* d_pt()       { return raw_ptr(pos_temp); }
     __host__ __device__ float2* d_v()       { return raw_ptr(vel); }
+    __host__ __device__ float4* d_F()       { return raw_ptr(F); }
 
     __host__ __device__ float* d_omega()    { return raw_ptr(omega); }
     __host__ __device__ float* d_omega_field()    { return raw_ptr(omega_field); }
@@ -62,11 +66,11 @@ struct ParticleSet
     __host__ __device__ const float2* d_p()     const { return raw_ptr(pos); }
     __host__ __device__ const float2* d_pt()    const { return raw_ptr(pos_temp); }
     __host__ __device__ const float2* d_v()     const { return raw_ptr(vel); }
+    __host__ __device__ const float4* d_F()     const { return raw_ptr(F); }
 
     __host__ __device__ const float*  d_omega() const { return raw_ptr(omega); }
     __host__ __device__ const float*  d_omega_field() const { return raw_ptr(omega_field); }
     __host__ __device__ const float*  d_jac()   const { return raw_ptr(jac); }
-
 };
 
 
@@ -74,6 +78,7 @@ struct VorticityView
 {
     /* Existing */
     const float2* pos;
+    const float4* F;
     const float*  w;
     int           N;
 
@@ -106,6 +111,8 @@ struct SimParam
     float h_w        = 0.f;    // h_w = hwr * h
     int length_iCDF  = 10;
 
+    float dx         = 0.f;
+
     bool periodic = true;
 
     /* ------------ Construction ------------ */
@@ -122,6 +129,7 @@ struct SimParam
         if (ResolutionY == 0)  ResolutionY = 1;    //
 
         h_w = h * hwr;                     // support-radius
+        dx = 0.5f * h_w;     // This should be adjusted
     }
 };
 
@@ -146,11 +154,16 @@ public:
     void step_cpu(bool periodic);
     void step_cuda(bool periodic);
 
+    void compute_velocity_naive(bool periodic, float eps_core);
+    void step_cuda_naive(bool periodic);
+
     inline float eval_vorticity_cpu(float2 p, bool periodic) const;
 
     /* --- Test functions --- */
     void test_vorticity_grid(int res);
     /* --- Test functions ---  */
+
+    void ensure_icdf_kernel(int L);
 
     VorticityView makePosView(const float* w_ptr  = nullptr) const;
     VorticityView makeNegView(const float* w_ptr  = nullptr) const;
@@ -170,6 +183,9 @@ private:
     float       cum_pos_{}, cum_neg_{};
 
     dvec<float> cdf_kernel, icdf_kernel; // cdf and icdf for kernels
+
+    dvec<float> icdf_kernel_;   // ICDF on device
+    int         icdf_L_ = 0;
 
     VorticityView pos_view;
     VorticityView neg_view;

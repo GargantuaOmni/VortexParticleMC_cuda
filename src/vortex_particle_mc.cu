@@ -40,7 +40,7 @@ int main()
     Simulation  vp_mc_simulation(param);
     vp_mc_simulation.init(param.N_max);
 
-    const int NSTEPS = 3;
+    const int NSTEPS = 10;
     const int PNG_RES = 512;
 
     //dump_vorticity_png(vp_mc_simulation, "result/step_init.png", PNG_RES, true);
@@ -86,15 +86,20 @@ void Simulation::init(int num_of_p)
     std::mt19937 rng(42);                                   //
     std::uniform_real_distribution<float> uni(0.f, 1.f);   // U[0,1)
 
+    ensure_icdf_kernel(20);
+
     for(int i = 0; i < num_of_p; ++i){
         float2 p { uni(rng), uni(rng) };      //
         host_pos[i]   = p;
         host_omega[i] = taylor_green_vorticity(p);          //
+
     }
 
 #if defined(USE_CUDA) && defined(__CUDACC__)
     thrust::copy(host_pos.begin(),   host_pos.end(),   particles_.pos.begin());
     thrust::copy(host_omega.begin(), host_omega.end(), particles_.omega.begin());
+    thrust::fill(particles_.jac.begin(), particles_.jac.end(),1.0);
+    thrust::fill(particles_.F.begin(), particles_.F.end(),make_float4(1,0,0,1));
 
     prepare_rhs_b();
     conjugate_gradient_rbf(*this);
@@ -255,10 +260,28 @@ void Simulation::prepare_rhs_b()
 }
 #endif
 
+
+void Simulation::ensure_icdf_kernel(int L)
+{
+    if (icdf_L_ == L && icdf_kernel_.size() == (size_t)L) return;
+
+    dvec<float> cdf;           //
+    build_cubic_rcdf(P_.h_w, L, cdf);
+    cdf_to_icdf(cdf, P_.h_w, icdf_kernel_);   //
+    icdf_L_ = L;
+
+#ifndef NDEBUG
+    thrust::host_vector<float> hicdf(icdf_kernel_.begin(), icdf_kernel_.end());
+    if (hicdf.back() > 1.001f)
+        std::cerr << "[warn] icdf_kernel last=" << hicdf.back()
+                  << " (>1). 若 icdf 已含 h_w 尺度，请去掉 sample_kernel_radius 中的 '*h'。\n";
+#endif
+}
+
 VorticityView Simulation::makePosView(const float* w_ptr) const
 {
     const SpatialHash& H = hash_pos_;    //
-    return { particles_.d_p(),
+    return { particles_.d_p(), particles_.d_F(),
              w_ptr ? w_ptr : particles_.d_omega(),
              particles_.N_cur,
              raw_ptr(H.vp_sort),         // Local counting sort
@@ -271,7 +294,7 @@ VorticityView Simulation::makePosView(const float* w_ptr) const
 VorticityView Simulation::makeNegView(const float* w_ptr) const
 {
     const SpatialHash& H = hash_neg_;    //
-    return { particles_.d_p(),
+    return { particles_.d_p(), particles_.d_F(),
              w_ptr ? w_ptr : particles_.d_omega(),
              particles_.N_cur,
              raw_ptr(H.vp_sort),         // Local counting sort
@@ -282,13 +305,13 @@ VorticityView Simulation::makeNegView(const float* w_ptr) const
 
 VorticityView Simulation::makePosViewNaive(const float* w_ptr) const
 {
-    return { particles_.d_p(), w_ptr ? w_ptr : particles_.d_omega(), particles_.N_cur,
+    return { particles_.d_p(), particles_.d_F(),w_ptr ? w_ptr : particles_.d_omega(), particles_.N_cur,
              nullptr, nullptr, 0, 0,
         P_.Lx, P_.Ly,1.0f / P_.Lx, 1.0f / P_.Ly ,cnt_pos_, raw_ptr(sub_pos_) };
 }
 VorticityView Simulation::makeNegViewNaive(const float* w_ptr) const
 {
-    return { particles_.d_p(), w_ptr ? w_ptr : particles_.d_omega(), particles_.N_cur,
+    return { particles_.d_p(), particles_.d_F(),w_ptr ? w_ptr : particles_.d_omega(), particles_.N_cur,
              nullptr, nullptr, 0, 0,
         P_.Lx, P_.Ly,1.0f / P_.Lx, 1.0f / P_.Ly ,cnt_neg_, raw_ptr(sub_neg_) };
 }
@@ -296,7 +319,7 @@ VorticityView Simulation::makeNegViewNaive(const float* w_ptr) const
 VorticityView Simulation::makeAllView(const float* w_ptr) const
 {
     const SpatialHash& H = hash_all_;
-    return { particles_.d_p(),
+    return { particles_.d_p(), particles_.d_F(),
              w_ptr ? w_ptr : particles_.d_omega(),
              particles_.N_cur,
              raw_ptr(H.vp_sort), raw_ptr(H.cell_acc),
@@ -304,6 +327,7 @@ VorticityView Simulation::makeAllView(const float* w_ptr) const
              1.0f / P_.Lx, 1.0f / P_.Ly ,particles_.N_cur,     // cnt_view
              raw_ptr(sub_all_) };
 }
+
 
 void Simulation::test_vorticity_grid(int res /*=128*/)
 {
@@ -424,7 +448,6 @@ void Simulation::test_vorticity_grid(int res /*=128*/)
     dump_png(field_hash , "vort_hash.png");
     dump_png(field_naive, "vort_naive.png");
 
-    /* ---------- 误差报告 ---------- */
     double mean_rel = sum_rel_err / (res*res);
     std::cout << "[Vorticity Grid Test " << res << "×" << res << "]\n"
               << "  max|err|  = " << max_abs_err  << '\n'

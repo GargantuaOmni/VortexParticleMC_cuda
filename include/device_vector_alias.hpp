@@ -25,8 +25,9 @@
   #include <cuda_runtime.h>         // float2 / float3 / …
   template<typename T> using dvec = thrust::device_vector<T>;
 #else
-#ifndef __VECTOR_TYPES_H__                // CUDA 自带头的 include-guard
+#ifndef __VECTOR_TYPES_H__                //
 struct float2 { float x, y; };
+struct float4 { float x, y, z, u; };
 #endif
 template<typename T> using dvec = std::vector<T>;
 #endif
@@ -56,7 +57,12 @@ __host__ __device__ auto raw_ptr(const Vec& v)                   //
 #define HD
 #endif
 
-
+#ifdef USE_CUDA
+__host__ __device__ inline float2 mul_jac(float4 J, float2 r){
+    return make_float2(J.x*r.x + J.y*r.y,
+                       J.z*r.x + J.w*r.y);
+}
+#endif
 
 
 /* Override operators for float2 */

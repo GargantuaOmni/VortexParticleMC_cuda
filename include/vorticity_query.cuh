@@ -49,6 +49,8 @@ float queryVorticityAbs(const VorticityView& v,
                 int local = v.vp_sort[k];
                 int I     = v.sub[local];
 
+                float4 Fi = v.F[I];
+                float det = Fi.x*Fi.w - Fi.y*Fi.z;              // det(F)
                 float2 d = { v.pos[I].x - p.x, v.pos[I].y - p.y };
                 // TODO: A lot of branches here, we need to optimize it
                 if(periodic){
@@ -60,15 +62,17 @@ float queryVorticityAbs(const VorticityView& v,
                     */
                     minimum_image(d, v.Lx, v.Ly);
                 }
-                float r2 = d.x*d.x + d.y*d.y;
-                if(r2 > hh)                 continue;
-                if(exclude_center && r2<1e-10f) continue;
+                float2 dloc = { ( Fi.w*d.x - Fi.y*d.y)/det,     // inv(F) * d
+                                (-Fi.z*d.x + Fi.x*d.y)/det };
+                float rad = hypotf(dloc.x, dloc.y);
+
+                if (rad > 2.f * h_w) continue;
+                if (exclude_center && rad < 1e-6f) continue;
                 if(sign>0 && v.w[I]<=0)     continue;
                 if(sign<0 && v.w[I]>=0)     continue;
 
                 float wval = use_signed ? v.w[I] : fabsf(v.w[I]);
-                float r    = sqrtf(r2);
-                sum += wval * cubicSplinePDF(r, h_w);
+                sum += wval * cubicSplinePDF(rad, h_w);
             }
         }
     return sum;

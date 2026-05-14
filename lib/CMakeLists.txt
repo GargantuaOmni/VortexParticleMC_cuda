@@ -85,6 +85,11 @@ if(USE_CUDA)
     target_compile_options(simulation_step_cuda PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-lineinfo>)
     target_link_libraries(simulation_step_cuda PUBLIC monte_carlo_bs_cuda)
 
+    add_library(naive_bs_cuda OBJECT ${PROJECT_SOURCE_DIR}/src/cuda/naive_biot_savart.cu)
+    target_include_directories(naive_bs_cuda PUBLIC ${PROJECT_SOURCE_DIR}/include)
+    target_link_libraries(naive_bs_cuda PRIVATE Thrust::Thrust)
+    target_link_libraries(simulation_step_cuda PRIVATE naive_bs_cuda)
+
     add_library(cg_rbf_init_cuda STATIC ${PROJECT_SOURCE_DIR}/src/cuda/cg_rbf_init.cu)
 
     target_include_directories(cg_rbf_init_cuda PUBLIC ${PROJECT_SOURCE_DIR}/include)

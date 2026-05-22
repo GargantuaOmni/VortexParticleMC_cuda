@@ -288,6 +288,40 @@ The method is first-order accurate in time and conditionally stable. The stabili
 
 ---
 
+## Kernel Deformation
+
+A static blob kernel advected purely by particle position loses accuracy as the flow stretches and shears the local vorticity distribution. To address this, each particle carries a **deformation Jacobian** $J(t) \in \mathbb{R}^{2 \times 2}$ that tracks how its kernel shape evolves with the flow.
+
+### Jacobian-Deformed Kernel
+
+When evaluating the vorticity contributed by particle $p$ at a field point $\mathbf{x}$, the isotropic distance $r = |\mathbf{x} - \mathbf{x}_p|$ is replaced by an anisotropic Mahalanobis distance:
+
+$$r_J = \left\| J^{-1}(t)\,(\mathbf{x} - \mathbf{x}_p(t)) \right\|$$
+
+so that the kernel $W(r_J; h_w)$ is evaluated in the deformed frame. This is a first-order Taylor approximation of the exact pullback of the kernel through the flow map $\Phi$.
+
+### Numerical Jacobian via Auxiliary Local Frame
+
+Rather than integrating the Jacobian ODE $dJ/dt = \nabla \mathbf{u} \cdot J$ analytically (which introduces independent numerical errors), the code tracks **4 auxiliary particles** per vortex particle — stored in `pos_left`, `pos_right`, `pos_top`, `pos_bottom` (`include/vortex_particle_mc.hpp:23`) — placed at distance $\delta x$ along each axis. All 5 points are advected by the same MC Biot-Savart velocity and the same forward Euler step. The numerical Jacobian at step $n$ is then estimated by finite differences:
+
+$$J_n = \left[\frac{\hat{c}_2 - \hat{c}_1}{2\delta x} \;\Bigg|\; \frac{\hat{c}_4 - \hat{c}_3}{2\delta x}\right]$$
+
+where $\hat{c}_1, \hat{c}_2$ are the left/right auxiliary positions and $\hat{c}_3, \hat{c}_4$ are the top/bottom positions after advection. The Jacobian is then **volume-normalized** to enforce incompressibility:
+
+$$J_\text{norm} = \frac{1}{\det(J)^{1/d}} J$$
+
+This approach, inspired by the Incompressible Particle-In-Cell (IPIC) method, captures the true numerical deformation of the discretised flow map rather than the analytic one, keeping the two consistent.
+
+### Sample Reuse for Jacobian Stability
+
+A key challenge is that the velocity gradient $\nabla \mathbf{u}$ needed to deform the kernel is evaluated by the same noisy MC estimator used for advection. When finite-differencing the velocity between a particle and its auxiliary points, independent Monte Carlo noise on each evaluation introduces large variance in the Jacobian. The solution is **sample reuse**: the $N_1$ source-particle samples drawn for the central particle are shared with all 4 auxiliary particles. Since nearby points see nearly identical source distributions, reusing samples dramatically reduces the differential noise and stabilises the Jacobian even at modest $N_1 + N_2$.
+
+### Reinitialization
+
+Kernel deformation cannot proceed indefinitely — as the Jacobian accumulates stretch, two problems arise: (1) the deformed support radius may exceed the spatial hash cell size, invalidating neighbour queries; (2) extreme aspect ratios cause the kernel to become effectively zero almost everywhere, starving the vorticity field of coverage. A **periodic reinitialization** resets all particle positions to a new uniform grid, sets all Jacobians to $I$, and solves the RBF-CG system again to re-fit vorticity strengths. The reinitialization interval is a key hyperparameter (see Table 1 in the Results section below).
+
+---
+
 ## Key Hyperparameters
 
 All parameters live in `SimParam` (`include/vortex_particle_mc.hpp:91`). Understanding their interactions is essential for balancing accuracy, variance, and runtime.
@@ -327,6 +361,124 @@ All parameters live in `SimParam` (`include/vortex_particle_mc.hpp:91`). Underst
 | Better initial condition fidelity | Increase `N_max` toward `Nx²`; lower `hwr` to reduce over-smoothing |
 | Improve neighbour-query throughput | Increase `rsh` up to `Nx / hwr`; verify 3×3 stencil still covers `h_w` |
 | Higher spatial resolution | Increase `Nx` (adjusts `h`, `h_w`, `rsh` together); scale `N_max` accordingly |
+
+---
+
+## Overall Algorithm
+
+The full per-step pipeline combines initialization, Lagrangian advection, kernel deformation, and periodic reinitialization:
+
+```
+───────────────────────────── INITIALIZATION (once) ─────────────────────────
+1.  Place N particles on a uniform grid over [0,Lx]×[0,Ly].
+2.  Set omega_field[i] = omega_target(x_i)   (e.g. Taylor-Green)
+3.  Build CDF/iCDF tables for cubic-spline kernel (used by branch-1 sampler)
+4.  Solve RBF-CG:  A * omega = omega_field    (GPU conjugate gradient)
+    → assigns particle strengths {omega_i} that reconstruct the target field
+5.  Partition into sub_pos / sub_neg; build normalized CDFs for MIS branch 1
+6.  Build spatial hash (FillCells + prefix scan + counting sort)
+7.  For each particle, place 4 auxiliary points at ±delta_x along each axis
+    (stored in pos_left, pos_right, pos_top, pos_bottom)
+
+──────────────────────────── SIMULATION LOOP (each step n) ──────────────────
+8.  MC Biot-Savart  (positive contribution)
+      monte_carlo_bs_kernel_safe <<<N, 128>>> (sign = +1)
+      → for each particle i, draw N1 samples from CDF of |omega_pos|
+           and N2 samples uniformly from disk, apply MIS balanced heuristic
+           → accumulate vel_pos[i]
+
+9.  MC Biot-Savart  (negative contribution)
+      monte_carlo_bs_kernel_safe <<<N, 128>>> (sign = -1)
+      → same, using neg subset  →  vel_neg[i]
+
+10. Compute net velocity:   u[i] = vel_pos[i] - vel_neg[i]       (thrust)
+
+11. Forward Euler advection of ALL points (particles + auxiliaries):
+      x[i]     += u(x[i])     * dt
+      c1[i]    += u(c1[i])    * dt       (left  auxiliary)
+      c2[i]    += u(c2[i])    * dt       (right auxiliary)
+      c3[i]    += u(c3[i])    * dt       (top   auxiliary)
+      c4[i]    += u(c4[i])    * dt       (bottom auxiliary)
+    velocities for auxiliaries are evaluated by the same MC estimator
+    with N1 samples *reused* from the central particle (sample reuse)
+
+12. Compute deformation Jacobian from auxiliary displacements:
+      J = [ (c2-c1)/(2*delta_x)  |  (c4-c3)/(2*delta_x) ]
+    Normalize for incompressibility:  J_norm = J / det(J)^(1/d)
+    Store J_norm[i] in jac[i]
+
+13. Apply periodic wrapping to all positions                      (thrust)
+
+14. Rebuild spatial hash                          (FillCells + CountingSort)
+
+15. Rebuild sub_pos / sub_neg CDFs                (build_subsets_cuda)
+
+──────────────────── REINITIALIZATION (every K steps) ───────────────────────
+16. Reset all particle positions to uniform grid
+    Reset all Jacobians to identity
+    Re-solve RBF-CG to re-fit {omega_i} to the current vorticity field
+    Rebuild spatial hash and CDFs
+```
+
+Note: step 11's auxiliary-particle velocities share the same $N_1$ source samples as the central particle (sample reuse), so the finite-difference Jacobian is computed from correlated rather than independent MC draws — dramatically reducing Jacobian variance without additional kernel evaluations.
+
+---
+
+## Experimental Results
+
+All experiments use Taylor-Green vortex $\omega_0(x,y) = 2\sin(2\pi x)\sin(2\pi y)$ on a periodic unit domain. Errors are $L^2$ norms of the vorticity field against ground truth.
+
+---
+
+### Fig. 1 — Initial reconstruction (t = 0)
+
+![Initial reconstruction](docs/fig_init.png)
+
+The four-quadrant layout reflects the $2\times 2$ periodic tiling of the unit domain. Each quadrant shows a smooth, rotationally symmetric vorticity peak — the hallmark of the Taylor-Green initial condition. The clean result confirms that the RBF-CG solver converges to a faithful representation: particle strengths $\{\omega_i\}$ accurately reconstruct the target field, with no ringing or ghost features near cell boundaries.
+
+---
+
+### Fig. 2 — MC evolution with kernel deformation (dt = 0.05, several steps)
+
+![MC evolution with deformation](docs/fig_evolved.png)
+
+After several time steps with deformation enabled, the four blobs develop internal structure: vortex filaments, roll-up features, and small-scale braiding consistent with 2D Euler dynamics. Fine-grained MC noise (from the stochastic velocity estimator) is visible as texture, but the large-scale vorticity topology is preserved and the four quadrants remain mutually consistent across periodic boundaries.
+
+---
+
+### Fig. 3 — Unstable deformation (dt = 0.5, no reinitialization bound)
+
+![Unstable deformation](docs/fig_unstable.png)
+
+Without a bounded reinitialization interval, or when $\Delta t$ is too large, the Jacobian accumulates numerical error faster than the MC estimator can resolve $\nabla \mathbf{u}$. Kernels become highly elongated, vorticity leaks across hash cells, and spatial hashing is no longer valid. The field collapses into high-frequency noise with no physical structure. Crucially, increasing $N_1 = N_2$ from 500 to 5000 does **not** cure this — the instability is in the Jacobian ODE discretisation, not in the Monte Carlo variance.
+
+---
+
+### Table 1 — Effect of Deformation and Reinitialization Interval
+
+Three methods compared: **MC + deform** (this work), **MC w/o deform** (static blob kernels), **grid method** (O(N²) Eulerian Biot-Savart). Errors are accumulated $L^2$ vorticity error over the full run.
+
+![Table 1](docs/table1_deform_error.png)
+
+**Observations:**
+- MC + deform is the best method at **every** setting — gains of 25–40% over static-kernel MC, and 35–65% over the grid method.
+- For small $\Delta t = 0.05$, a longer reinit interval (20 steps) is slightly better than 10 — the Jacobian has not yet diverged and each reset discards useful deformation information.
+- At large $\Delta t = 0.5$, reinit interval 3 gives the best result; interval 1 (reset every step) degrades toward the static-kernel baseline because no deformation information accumulates across steps.
+- The grid method is far more sensitive to $\Delta t$: error grows from 5.0 to 17.0 as $\Delta t$ increases from 0.05 to 0.5. MC + deform degrades from 3.1 to 6.8 over the same range — roughly half the sensitivity.
+
+---
+
+### Table 2 — MC vs. Pure Particle Method: Accuracy and Runtime
+
+Fixed $N_1 = N_2 = 5000$. **P** = pure particle method (deterministic, static kernels); **MC** = this method with MIS. Error metric is $L^2$ velocity error.
+
+![Table 2](docs/table2_mc_vs_particle.png)
+
+**Observations:**
+- MC reduces velocity error by **~60%** relative to the pure particle method across all three configurations — a robust accuracy advantage regardless of $h_w$ or particle count.
+- Runtime cost: MC is 2–3 orders of magnitude slower at fixed $N_1 + N_2 = 10000$. Profiling shows `EvaluateVorticityAbs` (the spatial-hash neighbour query called once per MC sample) accounts for the dominant fraction of MC time.
+- Increasing particle count from 4K ($h_w = 20h$) to 40K ($h_w = 6h$) with the same number of samples increases MC time by ~2.3× — sub-linear in $N$, consistent with the spatial hash reducing the per-query cost.
+- The $h_w = 20h$ / 4K particle configuration achieves the **lowest MC error** (2.303) at the **lowest MC runtime** (82.6s), suggesting that fewer particles with a larger kernel is the favourable regime for the MIS estimator: the smoother vorticity field is better captured by the vorticity-PDF branch, reducing estimator variance.
 
 ---
 
